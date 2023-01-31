@@ -1,0 +1,32 @@
+# config/v2x_gw.param.yaml
+---
+
+# Node-specific parameters
+/**:
+  ros__parameters:
+    server:
+      type: "zmq"                     # type of the V2X server (supported: "zmq")
+      address: "vcaptain001.local"    # hostname or ipv4 of the vehicleCAPTAIN routing core
+      receive_port: 5556              # 5556 is default for receiving from the vehicleCAPTAIN routing core
+      send_port: 5555                 # 5555 is default for sending to the vehicleCAPTAIN routing core
+      topic_filter: "v2x."            # supported: "v2x." ... get v2x messages (see vehicleCAPTAIN routing core docs)
+      cycle_time_ms: 1                # cycle time leads to communication update interval
+
+    header:
+      station_id: 1337          # this value is pseudonymized and should be unique in a GN communication
+
+    cam:
+      active: true                                # activate processing of CAM module
+      handler_debug_msg_throttle_ms: 5000         # throttle for debug msgs in milliseconds (throttles <=WARN)
+
+    cpm:
+      active: true                               # activate processing of CPM module
+      handler_debug_msg_throttle_ms: 5000         # throttle for debug msgs in milliseconds (throttles <=WARN)
+
+    denm:
+      active: true                               # activate processing of DENM module
+      handler_debug_msg_throttle_ms: 5000         # throttle for debug msgs in milliseconds (throttles <=WARN)
+
+    examplem:
+      active: false                               # activate processing of ExampleM module
+      handler_debug_msg_throttle_ms: 5000         # throttle for debug msgs in milliseconds (throttles <=WARN)
