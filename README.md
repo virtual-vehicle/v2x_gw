@@ -7,8 +7,8 @@ The vehicleCAPTAIN routing core may be replaced by your implementation for rx/tx
 
 Version Support:
 * v1.x
-  * v2x_msgs v1.1.0
-  * vcits 1.0
+  * [v2x_msgs](https://github.com/virtual-vehicle/v2x_msgs) v1.1.0
+  * [vcits](https://github.com/virtual-vehicle/vehicle_captain_its_lib_c_cxx) 1.0
 
 ## Copyright
 Please cite the [vehicleCAPTAIN paper](https://TODO_link_to_paper_when_it_is_published) if you used any part of this library for your work.
