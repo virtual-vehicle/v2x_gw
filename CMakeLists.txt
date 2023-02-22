@@ -59,6 +59,7 @@ ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/handler/CAMHandler.cpp
         src/handler/CPMHandler.cpp
         src/handler/DENMHandler.cpp
+        src/handler/IVIMHandler.cpp
         src/handler/ExampleMHandler.cpp
         )
 

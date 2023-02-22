@@ -4,6 +4,7 @@
 #include "handler/CAMHandler.h"
 #include "handler/CPMHandler.h"
 #include "handler/DENMHandler.h"
+#include "handler/IVIMHandler.h"
 #include "handler/ExampleMHandler.h"
 
 #include "server/V2XZMQServer.h"
@@ -30,6 +31,7 @@ V2XGateway::V2XGateway() : Node("v2x_gw") {
     v2x_m_handler_[MsgType::kCAM] = new CAMHandler(this);
     v2x_m_handler_[MsgType::kCPM] = new CPMHandler(this);
     v2x_m_handler_[MsgType::kDENM] = new DENMHandler(this);
+    v2x_m_handler_[MsgType::kIVIM] = new IVIMHandler(this);
     v2x_m_handler_[MsgType::kNone] = new ExampleMHandler(this); // keep it, it is used for decoding
 
     // init server

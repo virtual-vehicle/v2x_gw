@@ -38,6 +38,7 @@ enum class MsgType : int {
     kNone = 0,
     kDENM = 1,
     kCAM = 2,
+    kIVIM = 6,
     kCPM = 101
 } ;
 
