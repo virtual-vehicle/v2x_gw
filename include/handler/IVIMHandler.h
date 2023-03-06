@@ -11,6 +11,15 @@
 
 extern "C" {
 #include "vcits/ivim/IVIM.h"
+#include "vcits/ivim/IviContainer.h"
+#include "vcits/ivim/GlcPart.h"
+#include "vcits/ivim/Zone.h"
+#include "vcits/ivim/PolygonalLine.h"
+#include "vcits/ivim/DeltaPosition.h"
+#include "vcits/ivim/TcPart.h"
+#include "vcits/ivim/Zid.h"
+#include "vcits/ivim/LanePosition.h"
+#include "vcits/ivim/Text.h"
 }
 
 
@@ -65,6 +74,16 @@ private:
 
 
   v2x_msgs::msg::IVIM GetROSIVIM(std::pair<void *, size_t> message);
+  v2x_msgs::msg::IviContainer GetROSIviContainer(IviContainer_t* asn_ivi_container);
+  v2x_msgs::msg::GlcPart GetROSGlcPart(GlcPart_t* asn_glc_part);
+  v2x_msgs::msg::Zone GetROSZone(Zone_t* asn_zone);
+  v2x_msgs::msg::PolygonalLine GetROSPolygonalLine(PolygonalLine_t* asn_polygonal_line);
+  v2x_msgs::msg::DeltaPosition GetROSDeltaPosition(DeltaPosition_t* asn_delta_position);
+
+  v2x_msgs::msg::TcPart GetROSTcPart(TcPart_t* asn_tc_part);
+  v2x_msgs::msg::Zid GetROSZoneId(Zid_t* asn_zone_id);
+  v2x_msgs::msg::LanePosition GetROSLanePosition(LanePosition_t* asn_lane_position);
+  v2x_msgs::msg::Text GetROSText(Text_t* asn_text);
 
   // debug
   void PrintIVIM();
