@@ -4,28 +4,15 @@
 #include <sstream>
 
 extern "C" {
-
-#include "vcits/ivim/IviContainers.h"
-#include "vcits/ivim/IviContainer.h"
-#include "vcits/ivim/GlcParts.h"
-#include "vcits/ivim/GlcPart.h"
-#include "vcits/ivim/Zone.h"
-#include "vcits/ivim/DeltaPositions.h"
-#include "vcits/ivim/DeltaPosition.h"
-#include "vcits/ivim/TextContainer.h"
-#include "vcits/ivim/TcPart.h"
-#include "vcits/ivim/ZoneIds.h"
-#include "vcits/ivim/Zid.h"
-#include "vcits/ivim/LanePositions.h"
-#include "vcits/ivim/LanePosition.h"
-#include "vcits/ivim/TextLines.h"
-#include "vcits/ivim/Text.h"
-
 #include "vcits/exceptions/V2XLibExceptions.h"
 
 #include "vcits/parser/Decoder.h"
 #include "vcits/parser/Encoder.h"
 }
+
+#define CHECK_FAIL(result, message) do { if(result) { \
+                                        RCLCPP_ERROR(GetNode()->get_logger(), message); \
+                                        exit(EXIT_FAILURE);} } while(0);
 
 IVIMHandler::IVIMHandler(rclcpp::Node *gateway_node)
         : V2XMHandler(MsgType::kIVIM, gateway_node) {
@@ -163,12 +150,12 @@ void IVIMHandler::RosIVIMCallback(const v2x_msgs::msg::IVIMList::SharedPtr ros_i
 }
 
 void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, IVIM_t* asn_ivim) {
-  // reset data structure (free the pointers?)
+  // reset data structure - TODO: free the pointers before memsetting to 0?
   memset((void *) asn_ivim, 0, sizeof(IVIM_t));
 
   // header
-  asn_ivim->header.protocolVersion = 2; // V2 is most recent CDD header Q1 2022
-  asn_ivim->header.messageID = 6;
+  asn_ivim->header.protocolVersion = ros_ivim.header.protocol_version; // V2 is most recent CDD header Q1 2022
+  asn_ivim->header.messageID = ros_ivim.header.message_id;
   asn_ivim->header.stationID = ros_ivim.header.station_id.station_id;
 
   // ivi
@@ -188,12 +175,367 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, IVIM_t* asn_ivim) {
 
   /// optional
   if (ros_ivim.ivi.optional_present) {
-    // TODO: missing asn definitions
+    asn_ivim->ivi.optional = (IviContainers_t *) AllocateClearedMemory(sizeof(IviContainers_t));
+
+    auto asn_ivi_containers = &asn_ivim->ivi.optional->list;
+    auto &ros_ivi_containers = ros_ivim.ivi.optional.containers;
+
+    for (int i = 0; i < ros_ivi_containers.size(); ++i) {
+      auto asn_ivi_container = (IviContainer_t *) AllocateClearedMemory(sizeof(IviContainer_t));
+      auto &ros_ivi_container = ros_ivi_containers.at(i);
+
+      fillASNIviContainer(ros_ivi_container, asn_ivi_container);
+
+      CHECK_FAIL(ASN_SEQUENCE_ADD(asn_ivi_containers, asn_ivi_container),
+                 "ASN_SEQUENCE_ADD failed for asn_ivi_containers");
+    }
   }
 }
 
+void IVIMHandler::fillASNIviContainer(v2x_msgs::msg::IviContainer ros_ivi_container, IviContainer_t* asn_ivi_container) {
+  assert(asn_ivi_container);
+
+  switch (ros_ivi_container.ivi_container_container_select) {
+
+    case ros_ivi_container.IVI_CONTAINER_NOTHING: {
+      asn_ivi_container->present = IviContainer_PR_NOTHING;
+    }
+    break;
+
+    case ros_ivi_container.IVI_CONTAINER_GLC: {
+      asn_ivi_container->present = IviContainer_PR_glc;
+
+      auto &asn_glc = asn_ivi_container->choice.glc;
+      auto &ros_glc = ros_ivi_container.glc;
+
+      asn_glc.referencePosition.latitude = ros_glc.reference_position.latitude.latitude;
+      asn_glc.referencePosition.longitude = ros_glc.reference_position.longitude.longitude;
+
+      asn_glc.referencePosition.positionConfidenceEllipse.semiMajorConfidence = ros_glc.reference_position.position_confidence_ellipse.semi_major_confidence.semi_axis_length;
+      asn_glc.referencePosition.positionConfidenceEllipse.semiMinorConfidence = ros_glc.reference_position.position_confidence_ellipse.semi_minor_confidence.semi_axis_length;
+      asn_glc.referencePosition.positionConfidenceEllipse.semiMajorOrientation = ros_glc.reference_position.position_confidence_ellipse.semi_major_orientation.heading_value;
+
+      asn_glc.referencePosition.altitude.altitudeValue = ros_glc.reference_position.altitude.altitude_value.altitude_value;
+      asn_glc.referencePosition.altitude.altitudeConfidence = ros_glc.reference_position.altitude.altitude_confidence.altitude_confidence;
+
+      if (ros_glc.reference_position_time_present) {
+        // asn_imax2INTEGER allocates memory for asn_glc.referencePositionTime
+        if (asn_imax2INTEGER(asn_glc.referencePositionTime, ros_glc.reference_position_time.timestamp_its) == -1) {
+          // TODO: handle error
+        }
+      }
+
+      if (ros_glc.reference_position_heading_present) {
+        asn_glc.referencePositionHeading = nullptr;
+        // not implemented
+      }
+
+      if (ros_glc.reference_position_speed_present) {
+        asn_glc.referencePositionSpeed = nullptr;
+        // not implemented
+      }
+
+      auto asn_glc_parts = &asn_glc.parts.list;
+      auto &ros_glc_parts = ros_glc.parts.parts;
+
+      for (int i = 0; i < ros_glc_parts.size(); ++i) {
+        auto asn_glc_part = (GlcPart_t *) AllocateClearedMemory(sizeof(GlcPart_t));
+        auto &ros_glc_part = ros_glc_parts.at(i);
+
+//        fillASNGlcPart(ros_glc_part, asn_glc_part);
+
+        CHECK_FAIL(ASN_SEQUENCE_ADD(asn_glc_parts, asn_glc_part),
+                   "ASN_SEQUENCE_ADD failed for asn_glc_parts");
+      }
+    }
+    break;
+
+    case ros_ivi_container.IVI_CONTAINER_TC: {
+      asn_ivi_container->present = IviContainer_PR_tc;
+
+      auto &asn_tc = asn_ivi_container->choice.tc;
+      auto &ros_tc = ros_ivi_container.tc;
+
+      auto asn_tc_parts = &asn_tc.list;
+      auto &ros_tc_parts = ros_tc.container;
+
+      for (int i = 0; i < ros_tc_parts.size(); ++i) {
+        auto asn_tc_part = (TcPart_t *) AllocateClearedMemory(sizeof(TcPart_t));
+        auto& ros_tc_part = ros_tc_parts.at(i);
+
+//        fillASNTcPart(ros_tc_part, asn_tc_part);
+
+        CHECK_FAIL(ASN_SEQUENCE_ADD(asn_tc_parts, asn_tc_part),
+                   "ASN_SEQUENCE_ADD failed for asn_tc_parts");
+      }
+
+    }
+    break;
+
+    default: {
+      RCLCPP_INFO(GetNode()->get_logger(),
+                  "fillASNIviContainer: This ivi container is not implemented: %ld",
+                  ros_ivi_container.ivi_container_container_select);
+    }
+    break;
+  }
+}
+
+void IVIMHandler::fillASNGlcPart(v2x_msgs::msg::GlcPart ros_glc_part, GlcPart_t* asn_glc_part) {
+  assert(asn_glc_part);
+
+  asn_glc_part->zoneId = ros_glc_part.zone_id.zid;
+
+  if (ros_glc_part.lane_number_present) {
+    asn_glc_part->laneNumber = (LanePosition_t *) AllocateClearedMemory(sizeof(LanePosition_t));
+    *asn_glc_part->laneNumber = ros_glc_part.lane_number.lane_position;
+  }
+
+  if (ros_glc_part.zone_extension_present) {
+    asn_glc_part->zoneExtension = (long *) AllocateClearedMemory(sizeof(long));
+    *asn_glc_part->zoneExtension = ros_glc_part.zone_extension;
+  }
+
+  if (ros_glc_part.zone_heading_present) {
+    asn_glc_part->zoneHeading = (HeadingValue_t *) AllocateClearedMemory(sizeof(HeadingValue_t));
+    *asn_glc_part->zoneHeading = ros_glc_part.zone_heading.heading_value;
+  }
+
+  if (ros_glc_part.zone_present) {
+    asn_glc_part->zone = (Zone_t *) AllocateClearedMemory(sizeof(Zone_t));
+    fillASNZone(ros_glc_part.zone, asn_glc_part->zone);
+  }
+}
+
+void IVIMHandler::fillASNZone(v2x_msgs::msg::Zone ros_zone, Zone_t* asn_zone) {
+  assert(asn_zone);
+
+  switch (ros_zone.zone_container_select) {
+
+    case ros_zone.ZONE_NOTHING: {
+      asn_zone->present = Zone_PR_NOTHING;
+    }
+    break;
+
+    case ros_zone.ZONE_SEGMENT: {
+      asn_zone->present = Zone_PR_segment;
+
+      auto &asn_segment_zone = asn_zone->choice.segment;
+      auto &ros_segment_zone = ros_zone.segment;
+
+      fillASNPolygonalLine(ros_segment_zone.line, &asn_segment_zone.line);
+
+      if (ros_segment_zone.lane_width_present) {
+        asn_segment_zone.laneWidth = (IviLaneWidth_t *) AllocateClearedMemory(sizeof(IviLaneWidth_t));
+        *asn_segment_zone.laneWidth = ros_segment_zone.lane_width.ivi_lane_width;
+      }
+    }
+    break;
+
+    default: {
+      RCLCPP_INFO(GetNode()->get_logger(),
+                  "fillASNZone: This zone is not implemented: %ld",
+                  ros_zone.zone_container_select);
+    }
+    break;
+  }
+}
+
+void IVIMHandler::fillASNPolygonalLine(v2x_msgs::msg::PolygonalLine ros_polygonal_line, PolygonalLine_t* asn_polygonal_line) {
+  assert(asn_polygonal_line);
+
+  switch(ros_polygonal_line.polygonal_line_container_select) {
+
+    case ros_polygonal_line.POLYGONAL_LINE_NOTHING: {
+      asn_polygonal_line->present = PolygonalLine_PR_NOTHING;
+    }
+    break;
+
+    case ros_polygonal_line.POLYGONAL_LINE_DELTA_POSITIONS: {
+      asn_polygonal_line->present = PolygonalLine_PR_deltaPositions;
+
+      auto &asn_polygonal_line_delta_positions = asn_polygonal_line->choice.deltaPositions;
+      auto &ros_polygonal_line_delta_positions = ros_polygonal_line.delta_positions;
+
+      auto asn_delta_positions = &asn_polygonal_line_delta_positions.list;
+      auto &ros_delta_positions = ros_polygonal_line_delta_positions.positions;
+
+      for (int i = 0; i < ros_delta_positions.size(); ++i) {
+        auto asn_delta_position = (DeltaPosition_t *) AllocateClearedMemory(sizeof(DeltaPosition_t));
+        auto &ros_delta_position = ros_delta_positions.at(i);
+
+        fillASNDeltaPosition(ros_delta_position, asn_delta_position);
+
+        CHECK_FAIL(ASN_SEQUENCE_ADD(asn_delta_positions, asn_delta_position),
+                   "ASN_SEQUENCE_ADD failed for asn_delta_positions");
+      }
+    }
+    break;
+
+    default: {
+      RCLCPP_INFO(GetNode()->get_logger(),
+                  "fillASNPolygonalLine: This polygonal line is not implemented: %ld",
+                  ros_polygonal_line.polygonal_line_container_select);
+    }
+    break;
+  }
+}
+
+void IVIMHandler::fillASNDeltaPosition(v2x_msgs::msg::DeltaPosition ros_delta_position, DeltaPosition_t* asn_delta_position) {
+  asn_delta_position->deltaLatitude = ros_delta_position.delta_latitude.delta_latitude;
+  asn_delta_position->deltaLongitude = ros_delta_position.delta_longitude.delta_longitude;
+}
+
+void IVIMHandler::fillASNTcPart(v2x_msgs::msg::TcPart ros_tc_part, TcPart_t* asn_tc_part) {
+  assert(asn_tc_part);
+
+  if (ros_tc_part.detection_zone_ids_present) {
+    asn_tc_part->detectionZoneIds = (ZoneIds_t*) AllocateClearedMemory(sizeof(ZoneIds_t));
+
+    auto asn_direction_zone_ids = &asn_tc_part->detectionZoneIds->list;
+    auto &ros_direction_zone_ids = ros_tc_part.detection_zone_ids.ids;
+
+    for (int i = 0; i < ros_direction_zone_ids.size(); ++i) {
+      auto asn_direction_zone_id = (Zid_t *) AllocateClearedMemory(sizeof(Zid_t));
+      auto &ros_direction_zone_id = ros_direction_zone_ids.at(i);
+
+      fillASNZoneId(ros_direction_zone_id, asn_direction_zone_id);
+
+      CHECK_FAIL(ASN_SEQUENCE_ADD(asn_direction_zone_ids, asn_direction_zone_id),
+                 "ASN_SEQUENCE_ADD failed for asn_direction_zone_ids");
+    }
+  }
+
+  auto asn_relevance_zone_ids = &asn_tc_part->relevanceZoneIds.list;
+  auto &ros_relevance_zone_ids = ros_tc_part.relevance_zone_ids.ids;
+
+  for (int i = 0; i < ros_relevance_zone_ids.size(); ++i) {
+    auto asn_relevance_zone_id = (Zid_t *) AllocateClearedMemory(sizeof(Zid_t));
+    auto &ros_relevance_zone_id = ros_relevance_zone_ids.at(i);
+
+    fillASNZoneId(ros_relevance_zone_id, asn_relevance_zone_id);
+
+    CHECK_FAIL(ASN_SEQUENCE_ADD(asn_relevance_zone_ids, asn_relevance_zone_id),
+               "ASN_SEQUENCE_ADD failed for asn_relevance_zone_ids");
+  }
+
+  if (ros_tc_part.direction_present) {
+    asn_tc_part->direction = (Direction_t *) AllocateClearedMemory(sizeof(Direction_t));
+    *asn_tc_part->direction = ros_tc_part.direction.direction;
+  }
+
+  if (ros_tc_part.driver_awareness_zone_ids_present) {
+    asn_tc_part->driverAwarenessZoneIds = (ZoneIds_t *) AllocateClearedMemory(sizeof(ZoneIds_t));
+
+    auto asn_driver_awareness_zone_ids = &asn_tc_part->driverAwarenessZoneIds->list;
+    auto &ros_driver_awareness_zone_ids = ros_tc_part.driver_awareness_zone_ids.ids;
+
+    for (int i = 0; i < ros_relevance_zone_ids.size(); ++i) {
+      auto asn_driver_awareness_zone_id = (Zid_t *) AllocateClearedMemory(sizeof(Zid_t));
+      auto &ros_driver_awareness_zone_id = ros_driver_awareness_zone_ids.at(i);
+
+      fillASNZoneId(ros_driver_awareness_zone_id, asn_driver_awareness_zone_id);
+
+      CHECK_FAIL(ASN_SEQUENCE_ADD(asn_driver_awareness_zone_ids, asn_driver_awareness_zone_id),
+                 "ASN_SEQUENCE_ADD failed for asn_driver_awareness_zone_ids");
+    }
+  }
+
+  if (ros_tc_part.minimum_awareness_time_present) {
+    asn_tc_part->minimumAwarenessTime = (long *) AllocateClearedMemory(sizeof(long));
+    *asn_tc_part->minimumAwarenessTime = ros_tc_part.minimum_awareness_time;
+  }
+
+  if (ros_tc_part.applicable_lanes_present) {
+    asn_tc_part->applicableLanes = (LanePositions_t *) AllocateClearedMemory(sizeof(LanePositions_t));
+
+    auto asn_applicable_lanes = &asn_tc_part->applicableLanes->list;
+    auto &ros_applicable_lanes = ros_tc_part.applicable_lanes.positions;
+
+    for (int i = 0; i < ros_applicable_lanes.size(); ++i) {
+      auto asn_applicable_lane = (LanePosition_t *) AllocateClearedMemory(sizeof(LanePosition_t));
+      auto &ros_applicable_lane = ros_applicable_lanes.at(i);
+
+      fillASNLanePosition(ros_applicable_lane, asn_applicable_lane);
+
+      CHECK_FAIL(ASN_SEQUENCE_ADD(asn_applicable_lanes, asn_applicable_lane),
+                 "ASN_SEQUENCE_ADD failed for asn_applicable_lanes");
+    }
+  }
+
+  if (ros_tc_part.layout_id_present) {
+    asn_tc_part->layoutId = (long *) AllocateClearedMemory(sizeof(long));
+    *asn_tc_part->layoutId = ros_tc_part.layout_id;
+  }
+
+  if (ros_tc_part.pre_storedlayout_id_present) {
+    asn_tc_part->preStoredlayoutId = (long *) AllocateClearedMemory(sizeof(long));
+    *asn_tc_part->preStoredlayoutId = ros_tc_part.pre_storedlayout_id;
+  }
+
+  if (ros_tc_part.text_present) {
+    asn_tc_part->text = (TextLines_t *) AllocateClearedMemory(sizeof(TextLines_t));
+
+    auto asn_text_lines = &asn_tc_part->text->list;
+    auto &ros_text_lines = ros_tc_part.text.lines;
+
+    for (int i = 0; i < ros_text_lines.size(); ++i) {
+      auto asn_text = (Text_t *) AllocateClearedMemory(sizeof(Text_t));
+      auto &ros_text = ros_text_lines.at(i);
+
+      fillASNText(ros_text, asn_text);
+
+      CHECK_FAIL(ASN_SEQUENCE_ADD(asn_text_lines, asn_text),
+                 "ASN_SEQUENCE_ADD failed for asn_text_lines");
+    }
+  }
+
+  // TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
+
+  asn_tc_part->ext1 = (TcPart_t::TcPart__ext1 *) AllocateClearedMemory(sizeof(TcPart_t::TcPart__ext1));
+
+  asn_tc_part->ext1->iviType = ros_tc_part.ivi_type.ivi_type;
+
+  if (ros_tc_part.lane_status_present) {
+    asn_tc_part->ext1->laneStatus = (LaneStatus_t *) AllocateClearedMemory(sizeof(LaneStatus_t));
+    *asn_tc_part->ext1->laneStatus = ros_tc_part.lane_status.lane_status;
+  }
+
+  if (ros_tc_part.vehicle_characteristics_present) {
+    asn_tc_part->ext1->vehicleCharacteristics = nullptr;
+    // not implemented
+  }
+}
+
+void IVIMHandler::fillASNZoneId(v2x_msgs::msg::Zid ros_zone_id, Zid_t* asn_zone_id) {
+  *asn_zone_id = ros_zone_id.zid;
+}
+
+void IVIMHandler::fillASNLanePosition(v2x_msgs::msg::LanePosition ros_lane_position, LanePosition_t* asn_lane_position) {
+  *asn_lane_position = ros_lane_position.lane_position;
+}
+
+void IVIMHandler::fillASNText(v2x_msgs::msg::Text ros_text, Text_t* asn_text) {
+  if (ros_text.layout_component_id_present) {
+    asn_text->layoutComponentId = (long *) AllocateClearedMemory(sizeof(long));
+    *asn_text->layoutComponentId = ros_text.layout_component_id;
+  }
+
+//  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
+
+//  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
+
+}
+
+
+void* IVIMHandler::AllocateClearedMemory(size_t bytes) {
+  void* allocated_memory = malloc(bytes);
+  memset(allocated_memory, 0, bytes);
+  return allocated_memory;
+}
+
 v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
-  // variables
+
   v2x_msgs::msg::IVIM ros_ivim;
   IVIM_t *asn_ivim = nullptr;
 
@@ -236,8 +578,8 @@ v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
   if (asn_ivim->ivi.optional) {
     ros_ivim.ivi.optional_present = true;
 
-    auto& asn_ivi_containers = asn_ivim->ivi.optional->list;
-    auto& ros_ivi_containers = ros_ivim.ivi.optional.containers;
+    auto &asn_ivi_containers = asn_ivim->ivi.optional->list;
+    auto &ros_ivi_containers = ros_ivim.ivi.optional.containers;
 
     for (int i = 0; i < asn_ivi_containers.count; ++i) {
       auto asn_ivi_container = asn_ivi_containers.array[i];
@@ -327,14 +669,14 @@ v2x_msgs::msg::IviContainer IVIMHandler::GetROSIviContainer(IviContainer_t* asn_
 
     default: {
       RCLCPP_INFO(GetNode()->get_logger(),
-                  "This ivi container is not implemented: %u", asn_ivi_container->present);
+                  "GetROSIviContainer: This ivi container is not implemented: %u",
+                  asn_ivi_container->present);
     }
     break;
   }
 
   return ros_ivi_container;
 }
-
 
 v2x_msgs::msg::GlcPart IVIMHandler::GetROSGlcPart(GlcPart_t* asn_glc_part) {
 
@@ -393,7 +735,8 @@ v2x_msgs::msg::Zone IVIMHandler::GetROSZone(Zone_t* asn_zone) {
 
     default: {
       RCLCPP_INFO(GetNode()->get_logger(),
-                  "This zone is not implemented: %u", asn_zone->present);
+                  "GetROSZone: This zone is not implemented: %u",
+                  asn_zone->present);
     }
     break;
   }
@@ -432,7 +775,8 @@ v2x_msgs::msg::PolygonalLine IVIMHandler::GetROSPolygonalLine(PolygonalLine_t* a
 
     default: {
       RCLCPP_INFO(GetNode()->get_logger(),
-                  "This polygonal line is not implemented: %u", asn_polygonal_line->present);
+                  "GetROSPolygonalLine: This polygonal line is not implemented: %u",
+                  asn_polygonal_line->present);
     }
     break;
   }
