@@ -61,6 +61,7 @@ ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/handler/DENMHandler.cpp
         src/handler/IVIMHandler.cpp
         src/handler/ExampleMHandler.cpp
+        src/utils/IVIMUtils.cpp
         )
 
 # reference headers
@@ -68,6 +69,7 @@ target_include_directories(v2x_gw PUBLIC ${CMAKE_INSTALL_PREFIX}/include/
         include
         include/server
         include/handler
+        include/utils
         ${ZEROMQ_INCLUDE_DIR}
         vcits/asn1c
         .
