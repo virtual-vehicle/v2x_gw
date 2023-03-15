@@ -342,7 +342,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                         memset((void *) myObjClass, 0, sizeof(ObjectClass));
                         utils::convert2ASN1ObjectClass(myObjClass, ros_object);                   
         
-                        const int result = ASN_SET_ADD(myObjCLassDescription, myObjClass);
+                        const int result = ASN_SET_ADD(&myObjCLassDescription->list, myObjClass);
                         if(result != 0){
                             ASN_STRUCT_FREE(asn_DEF_ObjectClassDescription, myObjCLassDescription);
                             RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() for ObjectClassDescription failed");
@@ -355,7 +355,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     // TODO:: Implement Match position (not needed yet)
 
                     // Add object to container list
-                    const int result = ASN_SET_ADD(cpm_->cpm.cpmParameters.perceivedObjectContainer, myObj);
+                    const int result = ASN_SET_ADD(&cpm_->cpm.cpmParameters.perceivedObjectContainer->list, myObj);
                     if(result != 0){
                         ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, cpm_->cpm.cpmParameters.perceivedObjectContainer);
                         RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() failed");
