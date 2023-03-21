@@ -24,7 +24,8 @@ def get_share_file(package_name, file_name):
 
 def generate_launch_description():
 
-    namespace = 'v2x'
+    #namespace = 'v2x'
+    namespace = ''
 
 
     param_file = get_share_file(package_name='v2x_gw', file_name='config/v2x_gw.param.yaml')
