@@ -81,6 +81,7 @@ protected:
     long server_heartbeat_counter_;
     long server_received_messages_;
     long server_sent_messages_;
+    std::string server_connection_data_;
     std::string server_heartbeat_message_;
     rclcpp::Time server_last_message_received_;
     rclcpp::Time server_last_message_sent_;

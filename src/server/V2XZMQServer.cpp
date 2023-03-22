@@ -49,7 +49,21 @@ V2XZMQServer::V2XZMQServer(rclcpp::Node *gateway_node, std::map<MsgType, V2XMHan
     is_connected_ = true;
 
     // set ZMQ socket options
-//    zmq_recv_socket_->set(zmq::sockopt::subscribe, SERVER_TOPIC_FILTER);
+    zmq_recv_socket_->set(zmq::sockopt::subscribe, SERVER_TOPIC_FILTER_HB);
+    zmq_recv_socket_->set(zmq::sockopt::subscribe, SERVER_TOPIC_FILTER_V2X);
+
+    // diagnostics - JSON
+    server_connection_data_ = "";
+    server_connection_data_.append("{");
+    server_connection_data_.append("\"receiver\":" "{");
+    server_connection_data_.append("\"connect_string\": \"").append(zmq_recv_connect_string).append("\",");
+    server_connection_data_.append("\"subscribe#1\": \"").append(SERVER_TOPIC_FILTER_HB).append("\",");
+    server_connection_data_.append("\"subscribe#2\": \"").append(SERVER_TOPIC_FILTER_V2X).append("\"");
+    server_connection_data_.append("},");
+    server_connection_data_.append("\"sender\":" "{");
+    server_connection_data_.append("\"connect_string\": \"").append(zmq_snd_connect_string).append("\"");
+    server_connection_data_.append("}");
+    server_connection_data_.append("}");
 
     // create timers
     timer_ = rclcpp::create_timer(GetNode(), GetNode()->get_clock(),
@@ -104,8 +118,12 @@ std::vector<diagnostic_msgs::msg::KeyValue> V2XZMQServer::GetDiagnostics() {
     values.push_back(key_value);
 
     // status - server
+    key_value.key = "v2x_server.server_connection_data_";
+    key_value.value = server_connection_data_;
+    values.push_back(key_value);
     key_value.key = "v2x_server.server_heartbeat_counter_";
     key_value.value = std::to_string(server_heartbeat_counter_);
+    values.push_back(key_value);
     key_value.key = "v2x_server.server_heartbeat_message_";
     key_value.value = server_heartbeat_message_;
     values.push_back(key_value);
@@ -228,9 +246,9 @@ void V2XZMQServer::ReadConfig() {
         GetNode()->declare_parameter("server.send_port", 0);
         GetNode()->get_parameter("server.send_port", SERVER_SEND_PORT);
         GetNode()->declare_parameter("server.topic_filter_hb", "hb.");
-        GetNode()->get_parameter("server.topic_filter", SERVER_TOPIC_FILTER_HB);
+        GetNode()->get_parameter("server.topic_filter_hb", SERVER_TOPIC_FILTER_HB);
         GetNode()->declare_parameter("server.topic_filter_v2x", "v2x.");
-        GetNode()->get_parameter("server.topic_filter", SERVER_TOPIC_FILTER_V2X);
+        GetNode()->get_parameter("server.topic_filter_v2x", SERVER_TOPIC_FILTER_V2X);
         GetNode()->declare_parameter("server.cycle_time_ms", 100);
         GetNode()->get_parameter("server.cycle_time_ms", SERVER_CYCLE_TIME_MS);
     }
