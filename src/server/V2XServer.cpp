@@ -23,6 +23,7 @@ V2XServer::V2XServer(rclcpp::Node *gateway_node, std::map<MsgType, V2XMHandler *
     server_heartbeat_counter_ = 0;
     server_received_messages_ = 0;
     server_sent_messages_ = 0;
+    server_heartbeat_message_ = "not yet set";
     client_last_message_received_ = rclcpp::Time(0);
     client_last_message_sent_ = rclcpp::Time(0);
 }

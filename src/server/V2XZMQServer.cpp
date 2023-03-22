@@ -49,7 +49,7 @@ V2XZMQServer::V2XZMQServer(rclcpp::Node *gateway_node, std::map<MsgType, V2XMHan
     is_connected_ = true;
 
     // set ZMQ socket options
-    zmq_recv_socket_->set(zmq::sockopt::subscribe, SERVER_TOPIC_FILTER);
+//    zmq_recv_socket_->set(zmq::sockopt::subscribe, SERVER_TOPIC_FILTER);
 
     // create timers
     timer_ = rclcpp::create_timer(GetNode(), GetNode()->get_clock(),
@@ -106,6 +106,8 @@ std::vector<diagnostic_msgs::msg::KeyValue> V2XZMQServer::GetDiagnostics() {
     // status - server
     key_value.key = "v2x_server.server_heartbeat_counter_";
     key_value.value = std::to_string(server_heartbeat_counter_);
+    key_value.key = "v2x_server.server_heartbeat_message_";
+    key_value.value = server_heartbeat_message_;
     values.push_back(key_value);
     key_value.key = "v2x_server.server_received_messages_";
     key_value.value = std::to_string(server_received_messages_);
@@ -134,30 +136,40 @@ std::queue <std::pair<void *, size_t>> V2XZMQServer::ReceiveMessages() {
     // receive topic and msg
     while (isReceivingMessages) {
         if (zmq_recv_socket_->recv(topic, zmq::recv_flags::dontwait)) {
-            isReceivingMessages = true;
+            // we are receiving a topic (or at least some message)
+            server_heartbeat_counter_++;
 
             if (zmq_recv_socket_->recv(msg, zmq::recv_flags::dontwait)) {
-                // expect: a raw VIF container message
-                // topic string can be checked for other applications
-                // std::string topic_string = std::string(static_cast<char *>(topic.data()), topic.size());
 
-                // get memory for msg
-                unsigned char *msg_cpy = nullptr;
-                msg_cpy = (unsigned char *) malloc(sizeof(unsigned char) * msg.size());
-                if (msg_cpy == nullptr) {
-                    // if we are out of memory here, there are bigger problems ... just return and crash ... or so ...
-                    return msgs;
+                // we got a topic and a message
+                std::string topic_string = std::string(static_cast<char *>(topic.data()), topic.size());
+                if(topic_string.rfind(SERVER_TOPIC_FILTER_V2X, 0) == 0) {
+                    // we got a v2x message
+                    isReceivingMessages = true;
+
+                    // get memory for msg
+                    unsigned char *msg_cpy = nullptr;
+                    msg_cpy = (unsigned char *) malloc(sizeof(unsigned char) * msg.size());
+                    if (msg_cpy == nullptr) {
+                        // if we are out of memory here, there are bigger problems ... just return and crash ... or so ...
+                        return msgs;
+                    }
+
+                    // copy message
+                    memcpy(msg_cpy, msg.data(), msg.size());
+
+                    // store message
+                    msgs.push(std::make_pair(msg_cpy, msg.size()));
+
+                    // update counter
+                    client_received_messages_++;
+                    client_last_message_received_ = GetNode()->get_clock()->now();
+                } else if(topic_string.rfind(SERVER_TOPIC_FILTER_HB, 0) == 0){
+                    // we got a heartbeat message
+                    server_heartbeat_message_ = std::string(static_cast<char*>(msg.data()), msg.size());
+                } else {
+                    // we got a message from another topic ... we will just ignore it for now
                 }
-
-                // copy message
-                memcpy(msg_cpy, msg.data(), msg.size());
-
-                // store message
-                msgs.push(std::make_pair(msg_cpy, msg.size()));
-
-                // update counter
-                client_received_messages_++;
-                client_last_message_received_ = GetNode()->get_clock()->now();
             } else {
                 //something is wrong ... zmq broken ... will most likely crash at some point
             }
@@ -171,7 +183,7 @@ std::queue <std::pair<void *, size_t>> V2XZMQServer::ReceiveMessages() {
 
 void V2XZMQServer::SendMessages(std::queue <std::pair<void *, size_t>> msgs) {
     //variables
-    zmq::message_t topic(SERVER_TOPIC_FILTER);
+    zmq::message_t topic(SERVER_TOPIC_FILTER_V2X);
     zmq::message_t msg;
 
     while (!msgs.empty()) {
@@ -185,7 +197,7 @@ void V2XZMQServer::SendMessages(std::queue <std::pair<void *, size_t>> msgs) {
         msgs.pop();
 
         // topic may be extended with message type: currently "v2x.", better: "v2x.cam.", "v2x.denm.", etc.
-        topic = zmq::message_t(SERVER_TOPIC_FILTER);
+        topic = zmq::message_t(SERVER_TOPIC_FILTER_V2X);
 
 
         // send msg
@@ -215,8 +227,10 @@ void V2XZMQServer::ReadConfig() {
         GetNode()->get_parameter("server.receive_port", SERVER_RECEIVE_PORT);
         GetNode()->declare_parameter("server.send_port", 0);
         GetNode()->get_parameter("server.send_port", SERVER_SEND_PORT);
-        GetNode()->declare_parameter("server.topic_filter", "v2x.");
-        GetNode()->get_parameter("server.topic_filter", SERVER_TOPIC_FILTER);
+        GetNode()->declare_parameter("server.topic_filter_hb", "hb.");
+        GetNode()->get_parameter("server.topic_filter", SERVER_TOPIC_FILTER_HB);
+        GetNode()->declare_parameter("server.topic_filter_v2x", "v2x.");
+        GetNode()->get_parameter("server.topic_filter", SERVER_TOPIC_FILTER_V2X);
         GetNode()->declare_parameter("server.cycle_time_ms", 100);
         GetNode()->get_parameter("server.cycle_time_ms", SERVER_CYCLE_TIME_MS);
     }

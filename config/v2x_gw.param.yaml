@@ -9,7 +9,8 @@
       address: "vcaptain001.local"    # hostname or ipv4 of the vehicleCAPTAIN routing core
       receive_port: 5556              # 5556 is default for receiving from the vehicleCAPTAIN routing core
       send_port: 5555                 # 5555 is default for sending to the vehicleCAPTAIN routing core
-      topic_filter: "v2x."            # supported: "v2x." ... get v2x messages (see vehicleCAPTAIN routing core docs)
+      topic_filter_hb: "hb."          # supported: "hb." ... get hb (heartbeat) messages (see vehicleCAPTAIN routing core docs)
+      topic_filter_v2x: "v2x."        # supported: "v2x." ... get v2x messages (see vehicleCAPTAIN routing core docs)
       cycle_time_ms: 1                # cycle time leads to communication update interval
 
     header:
