@@ -17,6 +17,10 @@ V2XMHandler::V2XMHandler(MsgType msg_type = MsgType::kNone, rclcpp::Node *gatewa
     // init
     is_active_ = false;
     is_configured_ = false;
+
+    // diagnostics
+    message_received_counter_ = 0;
+    message_sent_counter_ = 0;
 }
 
 V2XMHandler::~V2XMHandler() {}

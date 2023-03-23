@@ -97,6 +97,14 @@ void V2XGateway::process(void) {
     key_value.value = std::to_string(getTimeDifferenceSeconds(current_timestamp, prev_process_timestamp));
     diagnostic_status.values.push_back(key_value);
 
+    // V2X handler diagnostics
+    for (auto const& handler : v2x_m_handler_) {
+        if(handler.first != MsgType::kNone) {
+            std::vector<diagnostic_msgs::msg::KeyValue> handler_diagnostics = handler.second->GetDiagnostics();
+            diagnostic_status.values.insert(std::end(diagnostic_status.values), std::begin(handler_diagnostics), std::end(handler_diagnostics));
+        }
+    }
+
     // V2X server diagnostics
     std::vector<diagnostic_msgs::msg::KeyValue> server_values = v2x_server_->GetDiagnostics();
     diagnostic_status.values.insert(std::end(diagnostic_status.values), std::begin(server_values), std::end(server_values));

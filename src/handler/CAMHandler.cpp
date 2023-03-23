@@ -37,6 +37,29 @@ CAMHandler::~CAMHandler() {
     }
 }
 
+std::vector<diagnostic_msgs::msg::KeyValue> CAMHandler::GetDiagnostics() {
+    std::vector<diagnostic_msgs::msg::KeyValue> values;
+    diagnostic_msgs::msg::KeyValue key_value;
+
+    // status - general
+    key_value.key = "v2x_handler.cam.is_active_";
+    key_value.value = std::to_string(is_active_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cam.is_configured_";
+    key_value.value = std::to_string(is_configured_);
+    values.push_back(key_value);
+
+    // status - messages
+    key_value.key = "v2x_handler.cam.message_received_counter_";
+    key_value.value = std::to_string(message_received_counter_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cam.message_sent_counter_";
+    key_value.value = std::to_string(message_sent_counter_);
+    values.push_back(key_value);
+
+    return values;
+}
+
 std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
 
     
@@ -77,6 +100,9 @@ std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
     new_data_received_ = false;
     cam_list_lock_.unlock();
 
+    // diagnostics
+    message_sent_counter_ += cam_queue.size();
+
     return cam_queue;
 }
 
@@ -90,6 +116,9 @@ void CAMHandler::PutMessages(std::queue <std::pair<void *, size_t>> msgs) {
         cam_list.cams.push_back(GetROSCAM(msgs.front()));
         msgs.pop();
     }
+
+    // diagnostics
+    message_received_counter_ += cam_list.cams.size();
 
     cam_pub_->publish(cam_list);
 }

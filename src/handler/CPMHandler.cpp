@@ -39,6 +39,29 @@ CPMHandler::~CPMHandler() {
     }
 }
 
+std::vector<diagnostic_msgs::msg::KeyValue> CPMHandler::GetDiagnostics() {
+    std::vector<diagnostic_msgs::msg::KeyValue> values;
+    diagnostic_msgs::msg::KeyValue key_value;
+
+    // status - general
+    key_value.key = "v2x_handler.cpm.is_active_";
+    key_value.value = std::to_string(is_active_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cpm.is_configured_";
+    key_value.value = std::to_string(is_configured_);
+    values.push_back(key_value);
+
+    // status - messages
+    key_value.key = "v2x_handler.cpm.message_received_counter_";
+    key_value.value = std::to_string(message_received_counter_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cpm.message_sent_counter_";
+    key_value.value = std::to_string(message_sent_counter_);
+    values.push_back(key_value);
+
+    return values;
+}
+
 std::queue<std::pair<void *, size_t>> CPMHandler::GetMessages() {
 
     // processing variables
@@ -82,6 +105,9 @@ std::queue<std::pair<void *, size_t>> CPMHandler::GetMessages() {
     }
     new_data_received_ = false;
 
+    // diagnostics
+    message_sent_counter_ += cpm_queue.size();
+
     return cpm_queue;
 }
 
@@ -99,6 +125,9 @@ void CPMHandler::PutMessages(std::queue<std::pair<void *, size_t>> msgs) {
         cpm_list.cpms.push_back(GetROSCPM(msgs.front()));
         msgs.pop();
     }
+
+    // diagnostics
+    message_received_counter_ += cpm_list.cpms.size();
 
     cpm_pub_->publish(cpm_list);
 }

@@ -38,6 +38,10 @@ public:
     /// Destroys ExampleM handler
     ~ExampleMHandler();
 
+    /// Receive ExampleM diagnostics
+    /// \return ExampleM diagnostic key value pairs
+    virtual std::vector<diagnostic_msgs::msg::KeyValue> GetDiagnostics() override;
+
     /// Get the most recent ExampleM
     /// ExampleM is produced in the background with ros subscriber magic; this method encodes it before returning.
     /// \return most recent ExampleM

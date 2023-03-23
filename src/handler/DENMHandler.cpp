@@ -41,6 +41,29 @@ DENMHandler::~DENMHandler() {
     denm_ = nullptr;
 }
 
+std::vector<diagnostic_msgs::msg::KeyValue> DENMHandler::GetDiagnostics() {
+    std::vector<diagnostic_msgs::msg::KeyValue> values;
+    diagnostic_msgs::msg::KeyValue key_value;
+
+    // status - general
+    key_value.key = "v2x_handler.denm.is_active_";
+    key_value.value = std::to_string(is_active_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.denm.is_configured_";
+    key_value.value = std::to_string(is_configured_);
+    values.push_back(key_value);
+
+    // status - messages
+    key_value.key = "v2x_handler.denm.message_received_counter_";
+    key_value.value = std::to_string(message_received_counter_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.denm.message_sent_counter_";
+    key_value.value = std::to_string(message_sent_counter_);
+    values.push_back(key_value);
+
+    return values;
+}
+
 std::queue <std::pair<void *, size_t>> DENMHandler::GetMessages() {
 
     // processing variables
@@ -64,6 +87,9 @@ std::queue <std::pair<void *, size_t>> DENMHandler::GetMessages() {
         prev_process_timestamp = current_timestamp;
     }
 
+    // diagnostics
+    message_sent_counter_ += denm_queue.size();
+
     return denm_queue;
 }
 
@@ -77,6 +103,9 @@ void DENMHandler::PutMessages(std::queue <std::pair<void *, size_t>> msgs) {
         denm_list.denms.push_back(GetROSDENM(msgs.front()));
         msgs.pop();
     }
+
+    // diagnostics
+    message_received_counter_ += denm_list.denms.size();
 
     denm_pub_->publish(denm_list);
 }
