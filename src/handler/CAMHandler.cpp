@@ -202,6 +202,7 @@ void CAMHandler::fillCAM(v2x_msgs::msg::CAM ros_cam, CAM_t* cam) {
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence;
 
+        //TODO not yet fully implemented -> only important parts, up until here ...
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.accelerationControl = nullptr; // NOT SET
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lanePosition = nullptr; // NOT SET
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.steeringWheelAngle = nullptr; // NOT SET
@@ -232,10 +233,6 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
         RCLCPP_INFO(GetNode()->get_logger(),
                     "If decoding fails, we throw away everything, as we would have to check how far we were able to decode");
     }
-
-    auto& clk = *GetNode()->get_clock();
-    RCLCPP_WARN_THROTTLE(GetNode()->get_logger(), clk, CAM_DEBUG_MSG_THROTTLE_MS,
-                         "Not all parts implemented for translation to ROS CAM! -> search for TODO");
 
     // convert from asn_cam to ros_cam
     //Header
@@ -276,8 +273,7 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
         ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_value.yaw_rate_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateValue;
         ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence;
 
-        RCLCPP_WARN(GetNode()->get_logger(), "GetROSCAM not yet fully implemented -> only important parts");
-        //TODO implementation of translation missing from here
+        //TODO not yet fully implemented -> only important parts, up until here ...
         if (false) {
 //            ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.acceleration_control_present = true;
 //            ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.acceleration_control.brake_pedal_engaged;

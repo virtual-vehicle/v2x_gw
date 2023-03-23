@@ -58,12 +58,10 @@ void V2XServer::Process(void) {
         incoming.pop();
     }
     for (auto const& elem : msg_mapping) {
-        try {
+        if (v2x_m_handler_.count(elem.first) > 0) // since C++20: if (v2x_m_handler_.contains(elem.first))
             v2x_m_handler_[elem.first]->PutMessages(elem.second);
-        } catch (...) {
-            // most likely a segfault because elem.first does not exist vof v2x_m_handler
-            RCLCPP_FATAL(GetNode()->get_logger(), ("Unstable Situation: Configuration error! Please add the MsgType::int(" + std::to_string(static_cast<int>(elem.first)) + ") handler to be used for decoding.").c_str());
-        }
+        else
+            RCLCPP_WARN(GetNode()->get_logger(), ("Configuration Warning! Please add the MsgType::int(" + std::to_string(static_cast<int>(elem.first)) + ") handler to be used for decoding.").c_str());
     }
 
     // collect outgoing messages

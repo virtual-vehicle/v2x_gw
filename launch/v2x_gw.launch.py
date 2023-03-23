@@ -44,7 +44,7 @@ def generate_launch_description():
                 LaunchConfiguration('param'),
                 {"server.address_fusion": LaunchConfiguration('server.address_fusion')}
                 ],
-            # prefix=['valgrind --leak-check=full'], #test for memory leaks
+            # prefix=['valgrind --leak-check=full --track-origins=yes'], #test for memory leaks
             namespace=namespace
         )
 
