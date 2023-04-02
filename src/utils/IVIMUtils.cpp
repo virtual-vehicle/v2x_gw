@@ -35,7 +35,8 @@ void IVIMUtils::fillASNIviContainer(v2x_msgs::msg::IviContainer ros_ivi_containe
       asn_glc.referencePosition.altitude.altitudeConfidence = ros_glc.reference_position.altitude.altitude_confidence.altitude_confidence;
 
       if (ros_glc.reference_position_time_present) {
-        // asn_imax2INTEGER allocates memory for asn_glc.referencePositionTime
+          asn_glc.referencePositionTime = (TimestampIts_t *) AllocateClearedMemory(sizeof(TimestampIts_t));
+
         if (asn_imax2INTEGER(asn_glc.referencePositionTime, ros_glc.reference_position_time.timestamp_its) == -1) {
           // TODO: handle error
         }
@@ -307,6 +308,7 @@ void IVIMUtils::fillASNTcPart(v2x_msgs::msg::TcPart ros_tc_part, TcPart_t* asn_t
   }
 
   // TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
+  // asn_tc_part->data = ros_tc_part.data;
 
   asn_tc_part->ext1 = (TcPart_t::TcPart__ext1 *) IVIMUtils::AllocateClearedMemory(sizeof(TcPart_t::TcPart__ext1));
 
@@ -338,8 +340,9 @@ void IVIMUtils::fillASNText(v2x_msgs::msg::Text ros_text, Text_t* asn_text) {
   }
 
 //  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
-
+//    asn_text->language = ros_text.language;
 //  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
+//    asn_text->textContent = ros_text.text_content;
 
 }
 
@@ -637,6 +640,7 @@ v2x_msgs::msg::TcPart IVIMUtils::GetROSTcPart(TcPart_t* asn_tc_part) {
   }
 
 // TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
+//  ros_tc_part.data = asn_tc_part->data;
 
   if (asn_tc_part->ext1) {
     ros_tc_part.ivi_type.ivi_type = asn_tc_part->ext1->iviType;
@@ -677,8 +681,10 @@ v2x_msgs::msg::Text IVIMUtils::GetROSText(Text_t* asn_text) {
   }
 
 //  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
+  ros_text.language = BIT_STRING_t_to_int64_t(&asn_text->language);
 
 //  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
+//  ros_text.text_content = asn_text->textContent;
 
   return ros_text;
 }
@@ -690,3 +696,16 @@ void* IVIMUtils::AllocateClearedMemory(size_t bytes) {
   return allocated_memory;
 }
 
+int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
+{
+  uint64_t value = 0;
+  uint64_t size = bit_string->size - 1;
+  uint64_t i = 0;
+
+  for (; i < bit_string->size - 1; ++i, --size)
+    value |= bit_string->buf[i] << ((size * sizeof(uint8_t)) - bit_string->bits_unused);
+
+  value |= bit_string->buf[i] >> bit_string->bits_unused;
+
+  return value;
+}

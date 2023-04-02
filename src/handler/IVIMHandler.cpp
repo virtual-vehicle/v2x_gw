@@ -157,12 +157,14 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, IVIM_t* asn_ivim) {
 
   // ivi
   /// mandatory
-//  asn_ivim->ivi.mandatory.serviceProviderId.countryCode = ros_ivim.ivi.mandatory.service_provider_id.country_code; // TODO: bitstream
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode = ros_ivim.ivi.mandatory.service_provider_id.country_code; // TODO: bitstream
   asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier = ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier;
 
   asn_ivim->ivi.mandatory.iviIdentificationNumber = ros_ivim.ivi.mandatory.ivi_identification_number.ivi_identification_number;
 
   if (ros_ivim.ivi.mandatory.time_stamp_present) {
+    asn_ivim->ivi.mandatory.timeStamp = (TimestampIts_t *) IVIMUtils::AllocateClearedMemory(sizeof(TimestampIts_t));
+
     if (asn_imax2INTEGER(asn_ivim->ivi.mandatory.timeStamp, ros_ivim.ivi.mandatory.time_stamp.timestamp_its) == -1) {
       // TODO: handle error
     }
@@ -217,7 +219,8 @@ v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
 
   // ivi
   /// mandatory
-//  ros_ivim.ivi.mandatory.service_provider_id.country_code = asn_ivim->ivi.mandatory.serviceProviderId.countryCode; // TODO: bitstring in IVIM_t
+
+  ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code = IVIMUtils::BIT_STRING_t_to_int64_t(&asn_ivim->ivi.mandatory.serviceProviderId.countryCode);
   ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier = asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier;
 
   ros_ivim.ivi.mandatory.ivi_identification_number.ivi_identification_number = asn_ivim->ivi.mandatory.iviIdentificationNumber;

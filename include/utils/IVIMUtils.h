@@ -83,6 +83,7 @@ public:
   static v2x_msgs::msg::Text GetROSText(Text_t* asn_text);
 
   static void* AllocateClearedMemory(size_t bytes);
+  static int64_t BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string);
 
 private:
   static rclcpp::Node * node_;
