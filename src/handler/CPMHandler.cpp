@@ -406,7 +406,7 @@ void CPMHandler::InitCPM(){
     memset((void *) cpm_, 0, sizeof(CPM_t));
 
     cpm_->header.protocolVersion = 2;
-    cpm_->header.messageID = 101;
+    cpm_->header.messageID = 14;
     cpm_->header.stationID = 0;
 
     // Management container
