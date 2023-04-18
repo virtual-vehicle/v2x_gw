@@ -308,7 +308,7 @@ void IVIMUtils::fillASNTcPart(v2x_msgs::msg::TcPart ros_tc_part, TcPart_t* asn_t
   }
 
   // TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
-  // asn_tc_part->data = ros_tc_part.data;
+//   asn_tc_part->data = ros_tc_part.data;
 
   asn_tc_part->ext1 = (TcPart_t::TcPart__ext1 *) IVIMUtils::AllocateClearedMemory(sizeof(TcPart_t::TcPart__ext1));
 
@@ -340,9 +340,9 @@ void IVIMUtils::fillASNText(v2x_msgs::msg::Text ros_text, Text_t* asn_text) {
   }
 
 //  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
-//    asn_text->language = ros_text.language;
+    asn_text->language = int64_t_to_BIT_STRING_t(ros_text.language);
 //  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
-//    asn_text->textContent = ros_text.text_content;
+    asn_text->textContent = std_string_to_UTF8String_t(ros_text.text_content);
 
 }
 
@@ -684,7 +684,7 @@ v2x_msgs::msg::Text IVIMUtils::GetROSText(Text_t* asn_text) {
   ros_text.language = BIT_STRING_t_to_int64_t(&asn_text->language);
 
 //  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
-//  ros_text.text_content = asn_text->textContent;
+  ros_text.text_content = UTF8String_t_to_std_string(&asn_text->textContent);
 
   return ros_text;
 }
@@ -699,13 +699,71 @@ void* IVIMUtils::AllocateClearedMemory(size_t bytes) {
 int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
 {
   uint64_t value = 0;
-  uint64_t size = bit_string->size - 1;
+  uint64_t size = bit_string->size;
   uint64_t i = 0;
 
   for (; i < bit_string->size - 1; ++i, --size)
-    value |= bit_string->buf[i] << ((size * sizeof(uint8_t)) - bit_string->bits_unused);
+    value |= bit_string->buf[i] << (((size - 1) * sizeof(uint8_t)) - bit_string->bits_unused);
 
   value |= bit_string->buf[i] >> bit_string->bits_unused;
 
   return value;
+}
+
+BIT_STRING_t IVIMUtils::int64_t_to_BIT_STRING_t(int64_t int_64_t) {
+  BIT_STRING_t bit_string;
+
+  int num_of_bits = sizeof(int64_t);
+  int unused_bits = 0;
+  while( !(int_64_t & (1 << (num_of_bits - 1))) ) {
+    ++unused_bits;
+    --num_of_bits;
+  }
+
+  int used_bits = sizeof(int_64_t) - unused_bits;
+  bit_string.size = used_bits / sizeof(uint8_t) + (used_bits % sizeof(uint8_t) == 0 ? 0 : 1);
+  bit_string.buf = (uint8_t*) AllocateClearedMemory(sizeof(uint8_t) * bit_string.size);
+
+  //TODO
+
+  return bit_string;
+}
+
+std::string IVIMUtils::UTF8String_t_to_std_string(UTF8String_t* utf8_string) {
+  std::string std_string;
+
+  for (int i = 0; i < utf8_string->size; ++i) {
+    std_string.push_back(utf8_string->buf[i]);
+  }
+
+  return std_string;
+}
+
+UTF8String_t IVIMUtils::std_string_to_UTF8String_t(std::string std_string){
+  UTF8String_t utf8_string;
+
+  utf8_string.size = std_string.size();
+  utf8_string.buf = (uint8_t*) AllocateClearedMemory(sizeof(char) * utf8_string.size);
+
+  for (int i = 0; i < utf8_string.size; ++i) {
+    utf8_string.buf[i] = std_string.at(i);
+  }
+
+  return utf8_string;
+}
+
+static std::vector<int64_t> OCTET_STRING_t_to_std_vector_int64_t(OCTET_STRING_t* octet_string) {
+  std::vector<int64_t> std_vector;
+
+  // TODO
+
+  return std_vector;
+}
+
+OCTET_STRING_t IVIMUtils::std_vector_int64_t_to_OCTET_STRING_t(std::vector<int64_t> std_vector) {
+  OCTET_STRING_t octet_string;
+
+  // TODO
+
+  return octet_string;
 }
