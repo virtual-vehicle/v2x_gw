@@ -40,7 +40,7 @@ enum class MsgType : int {
     kNone = 0,
     kDENM = 1,
     kCAM = 2,
-    kCPM = 101
+    kCPM = 14
 } ;
 
 class V2XMHandler {
