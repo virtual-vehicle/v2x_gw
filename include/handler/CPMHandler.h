@@ -43,6 +43,10 @@ public:
     /// Destroys CPM handler
     ~CPMHandler();
 
+    /// Receive CPM diagnostics
+    /// \return CPM diagnostic key value pairs
+    virtual std::vector<diagnostic_msgs::msg::KeyValue> GetDiagnostics() override;
+
     /// Get the most recent CPM
     /// CPM is produced in the background with ros subscriber magic; this method encodes it before returning.
     /// \return most recent CPM

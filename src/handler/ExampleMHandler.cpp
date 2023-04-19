@@ -14,6 +14,29 @@ ExampleMHandler::ExampleMHandler(rclcpp::Node *gateway_node)
 
 ExampleMHandler::~ExampleMHandler() {}
 
+std::vector<diagnostic_msgs::msg::KeyValue> ExampleMHandler::GetDiagnostics() {
+    std::vector<diagnostic_msgs::msg::KeyValue> values;
+    diagnostic_msgs::msg::KeyValue key_value;
+
+    // status - general
+    key_value.key = "v2x_handler.examplem.is_active_";
+    key_value.value = std::to_string(is_active_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.examplem.is_configured_";
+    key_value.value = std::to_string(is_configured_);
+    values.push_back(key_value);
+
+    // status - messages
+    key_value.key = "v2x_handler.examplem.message_received_counter_";
+    key_value.value = std::to_string(message_received_counter_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.examplem.message_sent_counter_";
+    key_value.value = std::to_string(message_sent_counter_);
+    values.push_back(key_value);
+
+    return values;
+}
+
 std::queue<std::pair<void *, size_t>> ExampleMHandler::GetMessages() {
 
     // processing variables
@@ -35,6 +58,9 @@ std::queue<std::pair<void *, size_t>> ExampleMHandler::GetMessages() {
         prev_process_timestamp = current_timestamp;
     }
 
+    // diagnostics
+    message_sent_counter_ += examplem_queue.size();
+
     return examplem_queue;
 }
 
@@ -45,6 +71,9 @@ void ExampleMHandler::PutMessages(std::queue<std::pair<void *, size_t>> msgs) {
     auto& clk = *GetNode()->get_clock();
     RCLCPP_WARN_THROTTLE(GetNode()->get_logger(), clk, EXAMPLEM_DEBUG_MSG_THROTTLE_MS,
                          "PutMessages(): not yet implemented for ExampleM -> throwing \"Not Implemented\"");
+
+    // diagnostics
+    message_received_counter_;// += examplem_list.examplem.size();
 
     throw "NotImplemented";
 }

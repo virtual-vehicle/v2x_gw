@@ -37,6 +37,29 @@ CAMHandler::~CAMHandler() {
     }
 }
 
+std::vector<diagnostic_msgs::msg::KeyValue> CAMHandler::GetDiagnostics() {
+    std::vector<diagnostic_msgs::msg::KeyValue> values;
+    diagnostic_msgs::msg::KeyValue key_value;
+
+    // status - general
+    key_value.key = "v2x_handler.cam.is_active_";
+    key_value.value = std::to_string(is_active_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cam.is_configured_";
+    key_value.value = std::to_string(is_configured_);
+    values.push_back(key_value);
+
+    // status - messages
+    key_value.key = "v2x_handler.cam.message_received_counter_";
+    key_value.value = std::to_string(message_received_counter_);
+    values.push_back(key_value);
+    key_value.key = "v2x_handler.cam.message_sent_counter_";
+    key_value.value = std::to_string(message_sent_counter_);
+    values.push_back(key_value);
+
+    return values;
+}
+
 std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
 
     
@@ -77,6 +100,9 @@ std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
     new_data_received_ = false;
     cam_list_lock_.unlock();
 
+    // diagnostics
+    message_sent_counter_ += cam_queue.size();
+
     return cam_queue;
 }
 
@@ -90,6 +116,9 @@ void CAMHandler::PutMessages(std::queue <std::pair<void *, size_t>> msgs) {
         cam_list.cams.push_back(GetROSCAM(msgs.front()));
         msgs.pop();
     }
+
+    // diagnostics
+    message_received_counter_ += cam_list.cams.size();
 
     cam_pub_->publish(cam_list);
 }
@@ -202,6 +231,7 @@ void CAMHandler::fillCAM(v2x_msgs::msg::CAM ros_cam, CAM_t* cam) {
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence;
 
+        //TODO not yet fully implemented -> only important parts, up until here ...
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.accelerationControl = nullptr; // NOT SET
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lanePosition = nullptr; // NOT SET
         cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.steeringWheelAngle = nullptr; // NOT SET
@@ -232,10 +262,6 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
         RCLCPP_INFO(GetNode()->get_logger(),
                     "If decoding fails, we throw away everything, as we would have to check how far we were able to decode");
     }
-
-    auto& clk = *GetNode()->get_clock();
-    RCLCPP_WARN_THROTTLE(GetNode()->get_logger(), clk, CAM_DEBUG_MSG_THROTTLE_MS,
-                         "Not all parts implemented for translation to ROS CAM! -> search for TODO");
 
     // convert from asn_cam to ros_cam
     //Header
@@ -276,8 +302,7 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
         ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_value.yaw_rate_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateValue;
         ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence;
 
-        RCLCPP_WARN(GetNode()->get_logger(), "GetROSCAM not yet fully implemented -> only important parts");
-        //TODO implementation of translation missing from here
+        //TODO not yet fully implemented -> only important parts, up until here ...
         if (false) {
 //            ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.acceleration_control_present = true;
 //            ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.acceleration_control.brake_pedal_engaged;

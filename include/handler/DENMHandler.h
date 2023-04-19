@@ -44,6 +44,10 @@ public:
     /// Destroys DENM handler
     ~DENMHandler();
 
+    /// Receive DENM diagnostics
+    /// \return DENM diagnostic key value pairs
+    virtual std::vector<diagnostic_msgs::msg::KeyValue> GetDiagnostics() override;
+
     /// Get the most recent DENMs
     /// DENMs are produced in the background with ros subscriber magic; this method encodes them before returning.
     /// \return most recent DENMs

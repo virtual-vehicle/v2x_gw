@@ -69,7 +69,8 @@ private:
     // necessary CAM constants
     std::string SERVER_TYPE;
     std::string SERVER_ADDRESS;
-    std::string SERVER_TOPIC_FILTER;
+    std::string SERVER_TOPIC_FILTER_HB;
+    std::string SERVER_TOPIC_FILTER_V2X;
     long SERVER_RECEIVE_PORT;
     long SERVER_SEND_PORT;
     long SERVER_CYCLE_TIME_MS;
