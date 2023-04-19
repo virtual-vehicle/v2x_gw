@@ -80,7 +80,7 @@ void IVIMUtils::fillASNIviContainer(v2x_msgs::msg::IviContainer ros_ivi_containe
         auto asn_tc_part = (TcPart_t *) IVIMUtils::AllocateClearedMemory(sizeof(TcPart_t));
         auto& ros_tc_part = ros_tc_parts.at(i);
 
-//        fillASNTcPart(ros_tc_part, asn_tc_part);
+        fillASNTcPart(ros_tc_part, asn_tc_part);
 
         CHECK_FAIL(ASN_SEQUENCE_ADD(asn_tc_parts, asn_tc_part),
                    "ASN_SEQUENCE_ADD failed for asn_tc_parts");
@@ -307,8 +307,7 @@ void IVIMUtils::fillASNTcPart(v2x_msgs::msg::TcPart ros_tc_part, TcPart_t* asn_t
     }
   }
 
-  // TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
-//   asn_tc_part->data = ros_tc_part.data;
+   asn_tc_part->data;
 
   asn_tc_part->ext1 = (TcPart_t::TcPart__ext1 *) IVIMUtils::AllocateClearedMemory(sizeof(TcPart_t::TcPart__ext1));
 
@@ -639,8 +638,7 @@ v2x_msgs::msg::TcPart IVIMUtils::GetROSTcPart(TcPart_t* asn_tc_part) {
     }
   }
 
-// TODO: asn_tc_part.data - how do i translate an OCTET_STRING ?
-//  ros_tc_part.data = asn_tc_part->data;
+  ros_tc_part.data;
 
   if (asn_tc_part->ext1) {
     ros_tc_part.ivi_type.ivi_type = asn_tc_part->ext1->iviType;
@@ -750,20 +748,4 @@ UTF8String_t IVIMUtils::std_string_to_UTF8String_t(std::string std_string){
   }
 
   return utf8_string;
-}
-
-static std::vector<int64_t> OCTET_STRING_t_to_std_vector_int64_t(OCTET_STRING_t* octet_string) {
-  std::vector<int64_t> std_vector;
-
-  // TODO
-
-  return std_vector;
-}
-
-OCTET_STRING_t IVIMUtils::std_vector_int64_t_to_OCTET_STRING_t(std::vector<int64_t> std_vector) {
-  OCTET_STRING_t octet_string;
-
-  // TODO
-
-  return octet_string;
 }
