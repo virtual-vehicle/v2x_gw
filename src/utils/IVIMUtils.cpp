@@ -1,3 +1,29 @@
+// -*- lsst-c++ -*-
+
+/*
+* <Name of Software>
+* See COPYRIGHT file at the top of the source tree.
+*
+* (Optional)
+* This product includes software developed by the
+* <Project Name> (<http://projectlink.org/>).
+*
+* (Licensing)
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the LSST License Statement and
+* the GNU General Public License along with this program. If not,
+* see <http://www.lsstcorp.org/LegalNotices/>.
+*/
+
 #include "IVIMUtils.h"
 #include "IVIMHandler.h"
 
@@ -337,12 +363,8 @@ void IVIMUtils::fillASNText(v2x_msgs::msg::Text ros_text, Text_t* asn_text) {
     asn_text->layoutComponentId = (long *) IVIMUtils::AllocateClearedMemory(sizeof(long));
     *asn_text->layoutComponentId = ros_text.layout_component_id;
   }
-
-//  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
     asn_text->language = int64_t_to_BIT_STRING_t(ros_text.language);
-//  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
     asn_text->textContent = std_string_to_UTF8String_t(ros_text.text_content);
-
 }
 
 
@@ -678,10 +700,7 @@ v2x_msgs::msg::Text IVIMUtils::GetROSText(Text_t* asn_text) {
     ros_text.layout_component_id = *asn_text->layoutComponentId;
   }
 
-//  TODO: ros_text.language - issue : how do i translate the asn BIT_STRING ?
   ros_text.language = BIT_STRING_t_to_int64_t(&asn_text->language);
-
-//  TODO: ros_text.text_content - issue : how do i translate the asn UTF8String ?
   ros_text.text_content = UTF8String_t_to_std_string(&asn_text->textContent);
 
   return ros_text;
@@ -701,7 +720,7 @@ int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
   uint64_t i = 0;
 
   for (; i < bit_string->size - 1; ++i, --size)
-    value |= bit_string->buf[i] << (((size - 1) * sizeof(uint8_t)) - bit_string->bits_unused);
+    value |= bit_string->buf[i] << ((size - 1) * sizeof(uint8_t) - bit_string->bits_unused);
 
   value |= bit_string->buf[i] >> bit_string->bits_unused;
 
@@ -711,18 +730,27 @@ int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
 BIT_STRING_t IVIMUtils::int64_t_to_BIT_STRING_t(int64_t int_64_t) {
   BIT_STRING_t bit_string;
 
-  int num_of_bits = sizeof(int64_t);
-  int unused_bits = 0;
-  while( !(int_64_t & (1 << (num_of_bits - 1))) ) {
+  uint64_t used_bits = sizeof(int_64_t);
+  uint64_t unused_bits = 0;
+  for( ; used_bits && !(int_64_t & (1 << (used_bits - 1))); --used_bits)
     ++unused_bits;
-    --num_of_bits;
-  }
 
-  int used_bits = sizeof(int_64_t) - unused_bits;
   bit_string.size = used_bits / sizeof(uint8_t) + (used_bits % sizeof(uint8_t) == 0 ? 0 : 1);
+  bit_string.buf = 0;
+
+  if (!bit_string.size)
+    return bit_string;
+
   bit_string.buf = (uint8_t*) AllocateClearedMemory(sizeof(uint8_t) * bit_string.size);
 
-  //TODO
+  uint64_t size = bit_string.size;
+  uint64_t i = 0;
+  for (; i < bit_string.size - 1; ++i, --size)
+    bit_string.buf[i] = int_64_t | (0xff << ((size - 1) * sizeof(uint8_t) - unused_bits));
+
+  bit_string.buf[i] = 0;
+  for (uint64_t j = 0; j < (sizeof(uint8_t) - unused_bits); ++j)
+    bit_string.buf[i] |= int_64_t | (1 << j);
 
   return bit_string;
 }

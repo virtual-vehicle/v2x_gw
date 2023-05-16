@@ -1,3 +1,24 @@
+//
+// Created by <Nives Križanec> on <Date as 16.05.2023>.
+//
+// Description:
+// The file contains methods of theIVIMHandler which handles the translation of IVI messages
+// There is a IVIMUtils.h file containing additional translation functions
+//
+// Author(s): "Nives Križanec"
+// Copyright: "Copyright 2007, The Cogent Project"
+// Credits: ["Christoph Pilz"]
+// License: "GPL"
+// Version: TBD
+// Maintainer: TBD
+// E-Mail: "Nives.Krizanec@v2c2.at"
+// Status = "Production"
+//
+// Possible Improvements:
+// [] <Bug 1>
+// [] <Refactoring Idea 2>
+// [] <Feature Idea 3>
+//
 
 #ifndef V2X_GW_IVIMHANDLER_H
 #define V2X_GW_IVIMHANDLER_H
@@ -23,6 +44,8 @@ public:
 
   /// Destroys IVIM handler
   ~IVIMHandler();
+
+  std::vector<diagnostic_msgs::msg::KeyValue> GetDiagnostics() override;
 
   /// Get the most recent IVIM
   /// IVIM is produced in the background with ros subscriber magic; this method encodes it before returning.

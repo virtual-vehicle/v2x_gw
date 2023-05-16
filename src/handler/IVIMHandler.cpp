@@ -1,3 +1,28 @@
+// -*- lsst-c++ -*-
+
+/*
+* <Name of Software>
+* See COPYRIGHT file at the top of the source tree.
+*
+* (Optional)
+* This product includes software developed by the
+* <Project Name> (<http://projectlink.org/>).
+*
+* (Licensing)
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the LSST License Statement and
+* the GNU General Public License along with this program. If not,
+* see <http://www.lsstcorp.org/LegalNotices/>.
+*/
 
 #include "IVIMHandler.h"
 
@@ -35,11 +60,33 @@ IVIMHandler::~IVIMHandler() {
   }
 }
 
+std::vector<diagnostic_msgs::msg::KeyValue> IVIMHandler::GetDiagnostics() {
+  std::vector<diagnostic_msgs::msg::KeyValue> values;
+  diagnostic_msgs::msg::KeyValue key_value;
+
+  // status - general
+  key_value.key = "v2x_handler.ivim.is_active_";
+  key_value.value = std::to_string(is_active_);
+  values.push_back(key_value);
+  key_value.key = "v2x_handler.ivim.is_configured_";
+  key_value.value = std::to_string(is_configured_);
+  values.push_back(key_value);
+
+  // status - messages
+  key_value.key = "v2x_handler.ivim.message_received_counter_";
+  key_value.value = std::to_string(message_received_counter_);
+  values.push_back(key_value);
+  key_value.key = "v2x_handler.ivim.message_sent_counter_";
+  key_value.value = std::to_string(message_sent_counter_);
+  values.push_back(key_value);
+
+  return values;
+}
+
 std::queue <std::pair<void *, size_t>> IVIMHandler::GetMessages() {
 
   // processing variables
-  rclcpp::Time current_timestamp = GetNode()->get_clock()->now(); // TODO: this is never used, why is it here? (also in CAMHandler)
-  std::queue <std::pair<void *, size_t>> ivim_queue; // there will only be one CAM in the queue, despite the queue
+  std::queue <std::pair<void *, size_t>> ivim_queue;
 
   if(!new_data_received_){
     return ivim_queue;
@@ -69,7 +116,7 @@ std::queue <std::pair<void *, size_t>> IVIMHandler::GetMessages() {
       RCLCPP_ERROR(GetNode()->get_logger(), "IVIM creation failed - you should probably stop the program");
       continue;
     }
-    // TODO: comment from CAMHandler: put multiple cams in queue if receiving from carla. Is this relevant for IVIM?
+
     ivim_queue.push(std::make_pair(final_ivim_buffer, final_ivim_size));
 
     auto& clk = *GetNode()->get_clock();
@@ -77,6 +124,8 @@ std::queue <std::pair<void *, size_t>> IVIMHandler::GetMessages() {
   }
 
   new_data_received_ = false;
+
+  message_sent_counter_ += ivim_queue.size();
 
   return ivim_queue;
 }
@@ -91,6 +140,8 @@ void IVIMHandler::PutMessages(std::queue <std::pair<void *, size_t>> messages) {
     ivim_list.ivims.push_back(GetROSIVIM(messages.front()));
     messages.pop();
   }
+
+  message_received_counter_ += ivim_list.ivims.size();
 
   ivim_pub_->publish(ivim_list);
 }
@@ -205,12 +256,12 @@ v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
     RCLCPP_ERROR(GetNode()->get_logger(), e.what());
     RCLCPP_INFO(GetNode()->get_logger(),
                 "If decoding fails, we throw away everything, as we would have to check how far we were able to decode");
-    exit(-1); // TODO: should i exit?
+    exit(-1);
   }
 
   auto &clk = *GetNode()->get_clock();
   RCLCPP_WARN_THROTTLE(GetNode()->get_logger(), clk, IVIM_DEBUG_MSG_THROTTLE_MS,
-                       "Not all parts implemented for translation to ROS IVIM! -> search for TODO");
+                       "Not all parts implemented for translation to ROS IVIM!");
 
   // header
   ros_ivim.header.protocol_version = asn_ivim->header.protocolVersion;
