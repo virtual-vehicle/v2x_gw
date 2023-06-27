@@ -1,3 +1,33 @@
 cmake-build-debug/
 .idea
 /cmake-build-debug/
+
+# exclude ossits from public upload
+## exclude oss headers
+/ossits/asn1oss/include/asn1oss/asn1code.h
+/ossits/asn1oss/include/asn1oss/asn1glob.h
+/ossits/asn1oss/include/asn1oss/asn1hdr.h
+/ossits/asn1oss/include/asn1oss/asn1util.h
+/ossits/asn1oss/include/asn1oss/etype.h
+/ossits/asn1oss/include/asn1oss/iaapi.h
+/ossits/asn1oss/include/asn1oss/ossasn1.h
+/ossits/asn1oss/include/asn1oss/ossber.h
+/ossits/asn1oss/include/asn1oss/osscag.h
+/ossits/asn1oss/include/asn1oss/ossdll.h
+/ossits/asn1oss/include/asn1oss/ossexer.h
+/ossits/asn1oss/include/asn1oss/ossglobl.h
+/ossits/asn1oss/include/asn1oss/ossiaapi.h
+/ossits/asn1oss/include/asn1oss/ossmmgmt.h
+/ossits/asn1oss/include/asn1oss/osspasn.h
+/ossits/asn1oss/include/asn1oss/ossper.h
+/ossits/asn1oss/include/asn1oss/osstrace.h
+/ossits/asn1oss/include/asn1oss/osstype.h
+/ossits/asn1oss/include/asn1oss/ossxer.h
+/ossits/asn1oss/include/asn1oss/printasn.h
+## exclude oss libs
+/ossits/asn1oss/lib/libasn1code.so
+/ossits/asn1oss/lib/libiaapi.so
+/ossits/asn1oss/lib/libosstoed.so
+## exclude generated message lib
+/ossits/include/ossits/ossits.h
+/ossits/src/ossits.cpp
