@@ -59,21 +59,27 @@ find_package(v2x_msgs REQUIRED)
 #pkg_check_modules(${USE_ITS_LIBRARY} REQUIRED)
 add_subdirectory(${USE_ITS_LIBRARY})
 
+# load the handler library
+configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/CAMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/CAMHandler.h" COPYONLY)
+configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/CPMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/CPMHandler.h" COPYONLY)
+configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/DENMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/DENMHandler.h" COPYONLY)
+
 # add executable and sources
 ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/server/V2XServer.cpp
         src/server/V2XZMQServer.cpp
-        src/handler/${USE_ITS_LIBRARY}/V2XMHandler.cpp
+        src/handler/V2XMHandler.cpp
+        src/handler/ExampleMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/CAMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/CPMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/DENMHandler.cpp
-        src/handler/${USE_ITS_LIBRARY}/ExampleMHandler.cpp
         )
 
 # reference headers
 target_include_directories(v2x_gw PUBLIC ${CMAKE_INSTALL_PREFIX}/include/
         include
         include/server
+        include/handler
         include/handler/${USE_ITS_LIBRARY}
         ${ZEROMQ_INCLUDE_DIR}
         ${USE_ITS_LIBRARY}/asn1c

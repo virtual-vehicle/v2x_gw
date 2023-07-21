@@ -31,3 +31,9 @@ cmake-build-debug/
 ## exclude generated message lib
 /ossits/include/ossits/ossits.h
 /ossits/src/ossits.cpp
+
+# exclude all loaded handler files, but not the template handlers
+/include/handler/*.h
+!/include/handler/ExampleMHandler.h
+!/include/handler/V2XMHandler.h
+
