@@ -79,6 +79,9 @@ protected:
     bool is_active_;
     bool is_configured_;
 
+    // oss asn1 world pointer
+    void* world_;
+
     // attributes - messages
     int message_received_counter_;
     int message_sent_counter_;

@@ -1,10 +1,12 @@
 #include "CPMHandler.h"
-#include "utils.h"
+#include "handler/vcits/specifics/utils.h"
 extern "C" {
 #include "vcits/exceptions/V2XLibExceptions.h"
 
 #include "vcits/parser/Decoder.h"
 #include "vcits/parser/Encoder.h"
+
+#include "vcits/cpm/CPM.h"
 }
 
 
@@ -13,8 +15,7 @@ struct PerceivedObject;
 CPMHandler::CPMHandler(rclcpp::Node *gateway_node)
         : V2XMHandler(MsgType::kCPM, gateway_node) {
 
-    cpm_ = (CPM_t *) malloc(
-            sizeof(CPM_t));  
+    cpm_ = malloc(sizeof(CPM_t));  
     new_data_received_ = false;
 
     // configure
@@ -84,8 +85,8 @@ std::queue<std::pair<void *, size_t>> CPMHandler::GetMessages() {
         void *final_cpm_buffer;
 
         try {
-            Encoder::validate_constraints(&asn_DEF_CPM, cpm_);
-            final_cpm_size = Encoder::encode(&asn_DEF_CPM, nullptr, cpm_, &final_cpm_buffer);
+            Encoder::validate_constraints(&asn_DEF_CPM, (CPM_t *)cpm_);
+            final_cpm_size = Encoder::encode(&asn_DEF_CPM, nullptr, (CPM_t *)cpm_, &final_cpm_buffer);
 
             if (final_cpm_size > 0) {
                 cpm_queue.push(std::make_pair(final_cpm_buffer, final_cpm_size));
@@ -157,92 +158,92 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
     if(ros_cpm_list->cpms.size() != 0){
         //free optional Containers before pointer is lost
-        if(cpm_->cpm.cpmParameters.stationDataContainer != nullptr){
-            ASN_STRUCT_FREE(asn_DEF_StationDataContainer, cpm_->cpm.cpmParameters.stationDataContainer);
+        if(((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer != nullptr){
+            ASN_STRUCT_FREE(asn_DEF_StationDataContainer, ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer);
         }
-        if(cpm_->cpm.cpmParameters.perceivedObjectContainer != nullptr){
-            ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, cpm_->cpm.cpmParameters.perceivedObjectContainer);
+        if(((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer != nullptr){
+            ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer);
         }
         // reset data structure
-        memset((void *) cpm_, 0, sizeof(CPM_t));
+        memset(cpm_, 0, sizeof(CPM_t));
 
         new_data_received_ = true;
-        for(auto ros_cpm : ros_cpm_list->cpms){
+        for(v2x_msgs::msg::CPM ros_cpm : ros_cpm_list->cpms){
             // header
-            cpm_->header.protocolVersion = ros_cpm.header.protocol_version;
-            cpm_->header.messageID = ros_cpm.header.message_id;
-            cpm_->header.stationID = ros_cpm.header.station_id.station_id;   
+            ((CPM_t *)cpm_)->header.protocolVersion = ros_cpm.header.protocol_version;
+            ((CPM_t *)cpm_)->header.messageID = ros_cpm.header.message_id;
+            ((CPM_t *)cpm_)->header.stationID = ros_cpm.header.station_id.station_id;   
 
             // Generation delta time
-            cpm_->cpm.generationDeltaTime = ros_cpm.cpm.generation_delta_time.generation_delta_time;
+            ((CPM_t *)cpm_)->cpm.generationDeltaTime = ros_cpm.cpm.generation_delta_time.generation_delta_time;
             
             // Management container
-            cpm_->cpm.cpmParameters.managementContainer.stationType = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.stationType = 
                 ros_cpm.cpm.cpm_parameters.management_container.station_type.station_type;
 
             //TODO: Implement perceived_object_container_segment_info (not needed yet)
             
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.latitude = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.latitude.latitude;
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.longitude = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.longitude.longitude;
 
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorConfidence = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorConfidence = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_major_confidence.semi_axis_length;
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMinorConfidence = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMinorConfidence = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_minor_confidence.semi_axis_length;
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorOrientation = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorOrientation = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_major_orientation.heading_value;
 
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_value.altitude_value;
-            cpm_->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeConfidence = 
+            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeConfidence = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_confidence.altitude_confidence;
 
             // Station data container
             if (ros_cpm.cpm.cpm_parameters.station_data_container_present){
                 //originatingVehicleContainer
                 if(ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select == v2x_msgs::msg::StationDataContainer::STATION_DATA_CONTAINER_ORIGINATING_VEHICLE_CONTAINER){
-                    cpm_->cpm.cpmParameters.stationDataContainer = (StationDataContainer *) malloc(sizeof(StationDataContainer));
-                    memset((void *) cpm_->cpm.cpmParameters.stationDataContainer, 0, sizeof(StationDataContainer));
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer = (StationDataContainer *) malloc(sizeof(StationDataContainer));
+                    memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer, 0, sizeof(StationDataContainer));
 
-                    cpm_->cpm.cpmParameters.stationDataContainer->present = StationDataContainer_PR_originatingVehicleContainer;
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->present = StationDataContainer_PR_originatingVehicleContainer;
                     
                     //Heading
-                    cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingValue = 
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingValue = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_value.heading_value;
-                    cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingConfidence = 
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingConfidence = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_confidence.heading_confidence;
 
                     //Speed
-                    cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedValue = 
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedValue = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_value.speed_value;
-                    cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedConfidence = 
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedConfidence = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_confidence.speed_confidence;
 
                     //Drive direction
-                    cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.driveDirection = 
+                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.driveDirection = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.drive_direction.drive_direction;
                     
                     // TODO: inpmelent optional Vehicle orientation Angle, Acceleration, Yaw Rate (Not needed Yet)
 
                     //Optional: Pitch Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle_present){
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
-                        memset((void *) cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle, 0, sizeof(CartesianAngle));
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->value = 
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
+                        memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle, 0, sizeof(CartesianAngle));
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.value.cartesian_angle_value;
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->confidence =
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->confidence =
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.confidence.angle_confidence;
                     }
                     
                     //Optional: Roll Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle_present){
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
-                        memset((void *) cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle, 0, sizeof(CartesianAngle));
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->value = 
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
+                        memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle, 0, sizeof(CartesianAngle));
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.value.cartesian_angle_value;
-                        cpm_->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->confidence =
+                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->confidence =
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.confidence.angle_confidence;
                     }
 
@@ -256,8 +257,8 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
             //Optional: PerceivedObjectContainer 
             if(ros_cpm.cpm.cpm_parameters.perceived_object_container_present){
-                cpm_->cpm.cpmParameters.perceivedObjectContainer = (PerceivedObjectContainer *) malloc(sizeof(PerceivedObjectContainer));
-                memset((void *) cpm_->cpm.cpmParameters.perceivedObjectContainer, 0, sizeof(PerceivedObjectContainer));
+                PerceivedObjectContainer* poc = (PerceivedObjectContainer *) malloc(sizeof(PerceivedObjectContainer));
+                memset((void *) poc, 0, sizeof(PerceivedObjectContainer));
 
                 for(auto ros_object : ros_cpm.cpm.cpm_parameters.perceived_object_container.container){
                     PerceivedObject *myObj = (PerceivedObject*) malloc(sizeof(PerceivedObject));
@@ -371,7 +372,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                         memset((void *) myObjClass, 0, sizeof(ObjectClass));
                         utils::convert2ASN1ObjectClass(myObjClass, ros_object);                   
         
-                        const int result = ASN_SET_ADD(myObjCLassDescription, myObjClass);
+                        const int result = ASN_SET_ADD(&myObjCLassDescription->list, myObjClass);
                         if(result != 0){
                             ASN_STRUCT_FREE(asn_DEF_ObjectClassDescription, myObjCLassDescription);
                             RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() for ObjectClassDescription failed");
@@ -384,17 +385,18 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     // TODO:: Implement Match position (not needed yet)
 
                     // Add object to container list
-                    const int result = ASN_SET_ADD(cpm_->cpm.cpmParameters.perceivedObjectContainer, myObj);
+                    const int result = ASN_SET_ADD(&poc->list, myObj);
                     if(result != 0){
-                        ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, cpm_->cpm.cpmParameters.perceivedObjectContainer);
+                        ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, poc);
                         RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() failed");
                         exit(EXIT_FAILURE);
                     }
                 }
+                ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer = poc;
             }
 
             //Number of perceived objects
-            cpm_->cpm.cpmParameters.numberOfPerceivedObjects = ros_cpm.cpm.cpm_parameters.number_of_perceived_objects.number_of_perceived_objects;
+            ((CPM_t *)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = ros_cpm.cpm.cpm_parameters.number_of_perceived_objects.number_of_perceived_objects;
 
         }
     }
@@ -403,26 +405,26 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
 void CPMHandler::InitCPM(){
     // reset data structure
-    memset((void *) cpm_, 0, sizeof(CPM_t));
+    memset(cpm_, 0, sizeof(CPM_t));
 
-    cpm_->header.protocolVersion = 2;
-    cpm_->header.messageID = 14;
-    cpm_->header.stationID = 0;
+    ((CPM_t *)cpm_)->header.protocolVersion = 2;
+    ((CPM_t *)cpm_)->header.messageID = 14;
+    ((CPM_t *)cpm_)->header.stationID = 0;
 
     // Management container
-    cpm_->cpm.generationDeltaTime = GetGenerationDeltaTime();
-    cpm_->cpm.cpmParameters.managementContainer.stationType = StationType::StationType_unknown;
-    cpm_->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = AltitudeValue::AltitudeValue_unavailable;
-    cpm_->cpm.cpmParameters.managementContainer.referencePosition.longitude = Longitude::Longitude_unavailable;
-    cpm_->cpm.cpmParameters.managementContainer.referencePosition.latitude = Latitude::Latitude_unavailable;
-    cpm_->cpm.cpmParameters.managementContainer.perceivedObjectContainerSegmentInfo = nullptr;
+    ((CPM_t *)cpm_)->cpm.generationDeltaTime = GetGenerationDeltaTime();
+    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.stationType = StationType::StationType_unknown;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = AltitudeValue::AltitudeValue_unavailable;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = Longitude::Longitude_unavailable;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = Latitude::Latitude_unavailable;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.perceivedObjectContainerSegmentInfo = nullptr;
 
     // Not set 
-    cpm_->cpm.cpmParameters.numberOfPerceivedObjects = 0;
-    cpm_->cpm.cpmParameters.perceivedObjectContainer = nullptr;
-    cpm_->cpm.cpmParameters.sensorInformationContainer = nullptr;
-    cpm_->cpm.cpmParameters.stationDataContainer = nullptr;
-    cpm_->cpm.cpmParameters.freeSpaceAddendumContainer = nullptr;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = 0;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer = nullptr;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.sensorInformationContainer = nullptr;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer = nullptr;
+    ((CPM_t *)cpm_)->cpm.cpmParameters.freeSpaceAddendumContainer = nullptr;
 }
 
 v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
@@ -523,7 +525,7 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     //TODO: Implement Optional: sensor_information_container (not needed yet)
 
     // Perceived Object Container
-    if( asn_cpm->cpm.cpmParameters.numberOfPerceivedObjects > 0 && asn_cpm->cpm.cpmParameters.perceivedObjectContainer != nullptr){
+    if(asn_cpm->cpm.cpmParameters.numberOfPerceivedObjects > 0 && asn_cpm->cpm.cpmParameters.perceivedObjectContainer != nullptr){
         ros_cpm.cpm.cpm_parameters.perceived_object_container_present = true;
         // TODO: I don't know if we can iterate through sequence like this
         

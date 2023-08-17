@@ -14,14 +14,15 @@ extern "C" {
 
 #include "vcits/parser/Decoder.h"
 #include "vcits/parser/Encoder.h"
+
+#include "vcits/denm/DENM.h"
 }
 
 DENMHandler::DENMHandler(rclcpp::Node *gateway_node)
         : V2XMHandler(MsgType::kDENM, gateway_node) {
 
     // allocate attributes
-    denm_ = (DENM_t *) malloc(
-            sizeof(DENM_t));  // we could check on nullptr ... however, if this fails, we have other problems (out of memory)
+    denm_ =  malloc(sizeof(DENM_t));  // we could check on nullptr ... however, if this fails, we have other problems (out of memory)
 
     // configure
     ReadConfig();
@@ -144,21 +145,21 @@ void DENMHandler::InitDENM() {
     memset((void *) denm_, 0, sizeof(DENM_t));
 
     // set header
-    denm_->header.protocolVersion = 2; // V2 is most recent CDD header Q1 2022
-    denm_->header.messageID = 1; // DENM
-    denm_->header.stationID = DENM_HEADER_STATION_ID;
+    ((DENM_t *)denm_)->header.protocolVersion = 2; // V2 is most recent CDD header Q1 2022
+    ((DENM_t *)denm_)->header.messageID = 1; // DENM
+    ((DENM_t *)denm_)->header.stationID = DENM_HEADER_STATION_ID;
 
     //ManagementContainer
-    denm_->denm.management; //TODO WARNING: undefined parameters may lead to validation/encoding issues
+    ((DENM_t *)denm_)->denm.management; //TODO WARNING: undefined parameters may lead to validation/encoding issues
 
     //SituationContainer
-    denm_->denm.situation = nullptr; // NOT SET;
+    ((DENM_t *)denm_)->denm.situation = nullptr; // NOT SET;
 
     //LocationContainer
-    denm_->denm.location = nullptr; // NOT SET;
+    ((DENM_t *)denm_)->denm.location = nullptr; // NOT SET;
 
     //AlacarteContainer
-    denm_->denm.alacarte = nullptr; // NOT SET;
+    ((DENM_t *)denm_)->denm.alacarte = nullptr; // NOT SET;
 }
 
 v2x_msgs::msg::DENM DENMHandler::GetROSDENM(std::pair<void *, size_t> msg) {
@@ -280,9 +281,9 @@ void DENMHandler::PrintDENM() {
 
     oss << "DENM" << "\n";
     oss << "|-header:" << "\n";
-    oss << " |-protocolVersion: " << denm_->header.protocolVersion << "\n";
-    oss << " |-messageID: " << denm_->header.messageID << "\n";
-    oss << " |-stationID: " << denm_->header.stationID << "\n";
+    oss << " |-protocolVersion: " << ((DENM_t *)denm_)->header.protocolVersion << "\n";
+    oss << " |-messageID: " << ((DENM_t *)denm_)->header.messageID << "\n";
+    oss << " |-stationID: " << ((DENM_t *)denm_)->header.stationID << "\n";
 
     RCLCPP_INFO(GetNode()->get_logger(), oss.str().c_str());
 }
