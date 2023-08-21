@@ -1,6 +1,5 @@
 
 #include "V2XMHandler.h"
-#include "handler/ossits/specifics/utils.h"
 
 extern "C" {
 #include "ossits/include/ossits/ossits.h"

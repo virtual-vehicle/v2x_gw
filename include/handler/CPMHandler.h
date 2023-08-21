@@ -61,6 +61,7 @@ private:
     // necessary handler processing constants
     bool CPM_ACTIVE;
     long CPM_DEBUG_MSG_THROTTLE_MS;
+    bool CPM_WRITE_TRACE_FILE;
 
     bool new_data_received_;
 
