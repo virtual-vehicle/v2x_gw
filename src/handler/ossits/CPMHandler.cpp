@@ -54,6 +54,9 @@ CPMHandler::~CPMHandler() {
         }
         cpm_ = nullptr;
     }
+    if(CPM_WRITE_TRACE_FILE){
+        ossCloseTraceFile((ossGlobal*)world_);
+    }
     ossterm((ossGlobal*)world_);
     free(world_);
 }
@@ -173,11 +176,14 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
         if(((CPM*)cpm_)->cpm.cpmParameters.bit_mask & perceivedObjectContainer_present){
             int ret_code;
             PerceivedObjectContainer_* poc = ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer;
+            PerceivedObjectContainer_* poc_next;
             while(poc != nullptr){
-                if ((ret_code = ossFreePDU((ossGlobal*)world_, PerceivedObject_PDU, (void*)&(poc->value))) != 0) {
-                    RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
-                }
-                poc = poc->next;
+                poc_next = poc->next;
+                free(poc);
+                // if ((ret_code = ossFreePDU((ossGlobal*)world_, PerceivedObject_PDU, (void*)&(poc->value))) != 0) {
+                //     RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+                // }
+                poc = poc_next;
             }
             
         }
@@ -219,10 +225,11 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
             // Station data container
             if (ros_cpm.cpm.cpm_parameters.station_data_container_present){
+                ((CPM*)cpm_)->cpm.cpmParameters.bit_mask |= stationDataContainer_present;
+
                 //originatingVehicleContainer
                 if(ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select == v2x_msgs::msg::StationDataContainer::STATION_DATA_CONTAINER_ORIGINATING_VEHICLE_CONTAINER){
-                    ((CPM*)cpm_)->cpm.cpmParameters.bit_mask &= stationDataContainer_present;
-                    
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.choice = originatingVehicleContainer_chosen;
                     //Heading
                     ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.heading.headingValue = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_value.heading_value;
@@ -242,7 +249,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //Optional: Pitch Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle_present){
-                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask &= pitchAngle_present;
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask |= pitchAngle_present;
                         ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.value.cartesian_angle_value;
                         ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.confidence =
@@ -251,7 +258,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     
                     //Optional: Roll Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle_present){
-                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask &= rollAngle_present;
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask |= rollAngle_present;
                         
                         ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.rollAngle.value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.value.cartesian_angle_value;
@@ -261,6 +268,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //TODO: Implement Vehicle Length, width, height and trailer data container (not needed yet)
                 } else {
+                    //((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.choice = originatingRSUContainer_chosen;
                     //TODO: Implement originating rsu container (Not needed yet)
                 } 
             }  
@@ -269,8 +277,10 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
             //Optional: PerceivedObjectContainer 
             if(ros_cpm.cpm.cpm_parameters.perceived_object_container_present){
-                ((CPM*)cpm_)->cpm.cpmParameters.bit_mask &= perceivedObjectContainer_present;
-
+                ((CPM*)cpm_)->cpm.cpmParameters.bit_mask |= perceivedObjectContainer_present;
+                
+                bool first = true;
+                PerceivedObjectContainer_* poc =((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer;
                 for(auto ros_object : ros_cpm.cpm.cpm_parameters.perceived_object_container.container){
                     PerceivedObjectContainer_ *next_poc = (PerceivedObjectContainer_ *) malloc(sizeof(PerceivedObjectContainer_));
                     memset((void *) next_poc, 0, sizeof(PerceivedObjectContainer_));
@@ -297,7 +307,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     myObj->yDistance.confidence = ros_object.y_distance.confidence.distance_confidence;
                     //OPTIONAL: zDistance
                     if(ros_object.z_distance_present){
-                        myObj->bit_mask &= zDistance_present;
+                        myObj->bit_mask |= zDistance_present;
                         myObj->zDistance.value = ros_object.z_distance.value.distance_value;
                         myObj->zDistance.confidence = ros_object.z_distance.confidence.distance_confidence;
                     }    
@@ -309,28 +319,28 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     myObj->ySpeed.confidence = ros_object.y_speed.confidence.speed_confidence;
                     //OPTIONAL: zSpeed
                     if(ros_object.z_speed_present){
-                        myObj->bit_mask &= zSpeed_present;
+                        myObj->bit_mask |= zSpeed_present;
                         myObj->zSpeed.value = ros_object.z_speed.value.speed_value_extended;
                         myObj->zSpeed.confidence = ros_object.z_speed.confidence.speed_confidence;
                     }
 
                     //OPTIONAL: Acceleration
                     if(ros_object.x_acceleration_present){
-                        myObj->bit_mask &= xAcceleration_present;
+                        myObj->bit_mask |= xAcceleration_present;
                         myObj->xAcceleration.longitudinalAccelerationValue = 
                             ros_object.x_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value;
                         myObj->xAcceleration.longitudinalAccelerationConfidence = 
                             ros_object.x_acceleration.longitudinal_acceleration_confidence.acceleration_confidence;
                     }
                     if(ros_object.y_acceleration_present){
-                        myObj->bit_mask &= yAcceleration_present;
+                        myObj->bit_mask |= yAcceleration_present;
                         myObj->yAcceleration.lateralAccelerationValue = 
                             ros_object.y_acceleration.lateral_acceleration_value.lateral_acceleration_value;
                         myObj->yAcceleration.lateralAccelerationConfidence = 
                             ros_object.y_acceleration.lateral_acceleration_confidence.acceleration_confidence;
                     }
                     if(ros_object.z_acceleration_present){
-                        myObj->bit_mask &= zAcceleration_present;
+                        myObj->bit_mask |= zAcceleration_present;
                         myObj->zAcceleration.verticalAccelerationValue = 
                             ros_object.z_acceleration.vertical_acceleration_value.vertical_acceleration_value;
                         myObj->zAcceleration.verticalAccelerationConfidence = 
@@ -339,30 +349,30 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //OPTIONAL: YawAngle
                     if(ros_object.yaw_angle_present){
-                        myObj->bit_mask &= yawAngle_present;
+                        myObj->bit_mask |= yawAngle_present;
                         myObj->yawAngle.value = ros_object.yaw_angle.value.cartesian_angle_value;
                         myObj->yawAngle.confidence = ros_object.yaw_angle.confidence.angle_confidence;
                     }
                     
                     //OPTIONAL: Dimension
                     if(ros_object.planar_object_dimension1_present){
-                        myObj->bit_mask &= planarObjectDimension1_present;
+                        myObj->bit_mask |= planarObjectDimension1_present;
                         myObj->planarObjectDimension1.value = ros_object.planar_object_dimension1.value.object_dimension_value;
                         myObj->planarObjectDimension1.confidence = ros_object.planar_object_dimension1.confidence.object_dimension_confidence;
                     }
                     if(ros_object.planar_object_dimension2_present){
-                        myObj->bit_mask &= planarObjectDimension2_present;
+                        myObj->bit_mask |= planarObjectDimension2_present;
                         myObj->planarObjectDimension2.value = ros_object.planar_object_dimension2.value.object_dimension_value;
                         myObj->planarObjectDimension2.confidence = ros_object.planar_object_dimension2.confidence.object_dimension_confidence;
                     }
                     if(ros_object.vertical_object_dimension_present){
-                        myObj->bit_mask &= verticalObjectDimension_present;
+                        myObj->bit_mask |= verticalObjectDimension_present;
                         myObj->verticalObjectDimension.value = ros_object.vertical_object_dimension.value.object_dimension_value;
                         myObj->verticalObjectDimension.confidence = ros_object.vertical_object_dimension.confidence.object_dimension_confidence;
                     }
 
                     //objectRefPoint
-                    myObj->bit_mask &= objectRefPoint_present;
+                    myObj->bit_mask |= objectRefPoint_present;
                     myObj->objectRefPoint = ros_object.object_ref_point.object_ref_point;
 
                     //OPTIONAL: DynamicsStatus
@@ -370,7 +380,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //OPTIONAL: classification
                     if(ros_object.classification_present){
-                        myObj->bit_mask &= PerceivedObject_classification_present;
+                        myObj->bit_mask |= PerceivedObject_classification_present;
                         ObjectClassDescription_ *myObjCLassDescription = (ObjectClassDescription_*)malloc(sizeof(ObjectClassDescription_));
                         memset((void *) myObjCLassDescription, 0, sizeof(ObjectClassDescription));
                         
@@ -382,12 +392,22 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     // TODO:: Implement Match position (not needed yet)
 
                     // Add object to container list
-                    PerceivedObjectContainer_* poc =((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer;
-                    while(poc->next != nullptr){
+
+                    if(first){
+                        ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer = next_poc;
+                        poc = next_poc;
+                        first = false;
+                    }else{
+                        while(poc->next != nullptr){
+                            poc = poc->next;
+                            RCLCPP_WARN(GetNode()->get_logger(), "on wrong place of list, should not happen");
+                        }
+                        poc->next = next_poc;
                         poc = poc->next;
-                    }
-                    poc->next = next_poc;
+                    }                                      
+                    
                 }
+                //RCLCPP_WARN(GetNode()->get_logger(), "Bitmask is : %x, Poc is: %p", ((CPM*)cpm_)->cpm.cpmParameters.bit_mask, ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer);
             }
             //Number of perceived objects
             ((CPM*)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = ros_cpm.cpm.cpm_parameters.number_of_perceived_objects.number_of_perceived_objects;
@@ -413,7 +433,7 @@ void CPMHandler::InitCPM(){
     ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.bit_mask = 0;
     
     // TODO: uncomment when segment info present
-    // ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.bitmask &= perceivedObjectContainerSegmentInfo_present;
+    // ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.bitmask |= perceivedObjectContainerSegmentInfo_present;
 
     ((CPM*)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = 0;
 
