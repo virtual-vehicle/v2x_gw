@@ -31,9 +31,7 @@
 
 #include <v2x_msgs/msg/ivim_list.hpp>
 
-extern "C" {
-#include "vcits/ivim/IVIM.h"
-}
+
 
 
 
@@ -69,7 +67,7 @@ private:
   bool new_data_received_;
 
   // IVIM attributes
-  std::vector <IVIM_t*> ivim_list_;
+  std::vector <void*> ivim_list_;
 
   // Published topics
   rclcpp::Publisher<v2x_msgs::msg::IVIMList>::SharedPtr ivim_pub_;
@@ -86,7 +84,7 @@ private:
 
   // IVIM generation
   void InitIVIM();
-  void fillIVIM(v2x_msgs::msg::IVIM ros_ivim, IVIM_t* asn_ivim);
+  void fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr);
 
   v2x_msgs::msg::IVIM GetROSIVIM(std::pair<void *, size_t> message);
 

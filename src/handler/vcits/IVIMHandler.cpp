@@ -31,6 +31,7 @@ extern "C" {
 
 #include "vcits/parser/Decoder.h"
 #include "vcits/parser/Encoder.h"
+#include "vcits/ivim/IVIM.h"
 }
 
 IVIMHandler::IVIMHandler(rclcpp::Node *gateway_node)
@@ -96,7 +97,8 @@ std::queue <std::pair<void *, size_t>> IVIMHandler::GetMessages() {
   size_t final_ivim_size;
   void *final_ivim_buffer;
 
-  for(IVIM_t* ivim : ivim_list_){
+  for(void* ivim_void_ptr : ivim_list_){
+    IVIM_t* ivim = (IVIM_t*) ivim_void_ptr;
 
     try {
       Encoder::validate_constraints(&asn_DEF_IVIM, ivim);
@@ -165,7 +167,7 @@ void IVIMHandler::ReadConfig() {
 void IVIMHandler::addIVIM() {
   IVIM_t* new_ivim = (IVIM_t*)malloc(sizeof(IVIM_t));
   memset(new_ivim, 0, sizeof(IVIM_t));
-  ivim_list_.push_back(new_ivim);
+  ivim_list_.push_back((void*)new_ivim);
 }
 
 void IVIMHandler::removeIVIM() {
@@ -197,8 +199,9 @@ void IVIMHandler::RosIVIMCallback(const v2x_msgs::msg::IVIMList::SharedPtr ros_i
   new_data_received_ = true;
 }
 
-void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, IVIM_t* asn_ivim) {
+void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr) {
   // reset data structure - TODO: free the pointers before memsetting to 0?
+  IVIM_t* asn_ivim = (IVIM_t*) asn_ivim_void_ptr;
   memset((void *) asn_ivim, 0, sizeof(IVIM_t));
 
   // header
