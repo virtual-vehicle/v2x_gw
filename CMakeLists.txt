@@ -77,6 +77,8 @@ ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/handler/${USE_ITS_LIBRARY}/CAMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/CPMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/DENMHandler.cpp
+        src/handler/${USE_ITS_LIBRARY}/IVIMHandler.cpp
+        src/utils/IVIMUtils.cpp
         )
 
 # reference headers
@@ -84,6 +86,7 @@ target_include_directories(v2x_gw PUBLIC ${CMAKE_INSTALL_PREFIX}/include/
         include
         include/server
         include/handler
+        include/utils
         ${ZEROMQ_INCLUDE_DIR}
         ${USE_ITS_LIBRARY}/${USE_ITS_LIBRARY_ASN_FOLDER}
         .
