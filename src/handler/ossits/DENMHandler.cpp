@@ -18,6 +18,16 @@ DENMHandler::DENMHandler(rclcpp::Node *gateway_node)
     // configure
     ReadConfig();
 
+    //init ossits world
+    world_ = malloc(sizeof(OssGlobal));
+    int retcode;
+    if (retcode = ossinit((OssGlobal*) world_, ITS_Container)) {
+	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d", retcode);
+    }
+
+    ossSetEncodingFlags((OssGlobal*)world_, DEBUGPDU);
+    ossSetDecodingFlags((OssGlobal*)world_, DEBUGPDU);
+
     // init denm structure
     InitDENM();
 
@@ -34,6 +44,9 @@ DENMHandler::~DENMHandler() {
         RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
     }
     denm_ = nullptr;
+
+    ossterm((ossGlobal*)world_);
+    free(world_);
 }
 
 std::vector<diagnostic_msgs::msg::KeyValue> DENMHandler::GetDiagnostics() {
