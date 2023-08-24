@@ -47,7 +47,7 @@ CPMHandler::CPMHandler(rclcpp::Node *gateway_node)
 CPMHandler::~CPMHandler() {
     // TODO: CHECK how deep this mighty free functions works, does it free all encapsulated pointers?
     if(cpm_!= nullptr){
-        //frees and removes last element of cam_list
+        //frees and removes last element of cpm_list
         int ret_code;
         if ((ret_code = ossFreePDU((ossGlobal*)world_, CPM_PDU, cpm_)) != 0) {
             RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
@@ -380,7 +380,7 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //OPTIONAL: classification
                     if(ros_object.classification_present){
-                        myObj->bit_mask |= PerceivedObject_classification_present;
+                        myObj->bit_mask |= classification_present;
                         ObjectClassDescription_ *myObjCLassDescription = (ObjectClassDescription_*)malloc(sizeof(ObjectClassDescription_));
                         memset((void *) myObjCLassDescription, 0, sizeof(ObjectClassDescription));
                         
@@ -633,7 +633,7 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
             // TODO:: Implement Dynamic Status (not needed yet)
 
             //OPTIONAL: classification
-            if(object->bit_mask & PerceivedObject_classification_present){
+            if(object->bit_mask & classification_present){
                 ros_object.classification_present = true;
                 // iterate over sequence items
                 ObjectClassDescription_* ocd=object->classification;

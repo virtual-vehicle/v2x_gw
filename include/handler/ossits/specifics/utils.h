@@ -41,8 +41,7 @@ namespace utils
     v2x_msgs::msg::ObjectClass getROSMsgsObjectClass(_choice5 *asn1Class)
     {
         v2x_msgs::msg::ObjectClass ros_class;
-        switch(asn1Class->choice){
-            case person_chosen:
+        if(asn1Class->choice==person_chosen){
                 ros_class.class_container_select = ros_class.CLASS_PERSON_SUBCLASS;
                 
                 if(asn1Class->u.person.bit_mask & PersonSubclass_type_present){
@@ -56,8 +55,7 @@ namespace utils
                 }else{
                     ros_class.person.confidence.class_confidence = v2x_msgs::msg::ClassConfidence::CLASS_CONFIDENCE_UNAVAILABLE;
                 }
-                break;
-            case class_vehicle_chosen:
+        } else if(asn1Class->choice==class_vehicle_chosen){
                 ros_class.class_container_select = ros_class.CLASS_VEHICLE_SUBCLASS;
                 
                 if(asn1Class->u.vehicle.bit_mask & VehicleSubclass_type_present){
@@ -71,8 +69,7 @@ namespace utils
                 }else{
                     ros_class.vehicle.confidence.class_confidence = v2x_msgs::msg::ClassConfidence::CLASS_CONFIDENCE_UNAVAILABLE;
                 }
-                break;
-            case animal_chosen:
+        } else if(asn1Class->choice==animal_chosen){
                 ros_class.class_container_select = ros_class.CLASS_ANIMAL_SUBCLASS;
 
                 if(asn1Class->u.animal.bit_mask & AnimalSubclass_type_present){
@@ -86,24 +83,20 @@ namespace utils
                 }else{
                     ros_class.animal.confidence.class_confidence = v2x_msgs::msg::ClassConfidence::CLASS_CONFIDENCE_UNAVAILABLE;
                 }
-                break;
-            case other_chosen:
-                ros_class.class_container_select = ros_class.CLASS_OTHER_SUBCLASS;
+        } else if(asn1Class->choice==other_chosen){
+            ros_class.class_container_select = ros_class.CLASS_OTHER_SUBCLASS;
 
-                if(asn1Class->u.other.bit_mask & OtherSubclass_type_present){
-                    ros_class.other.type.other_sublass_type = asn1Class->u.other.type;
-                }else{
-                    ros_class.other.type.other_sublass_type = v2x_msgs::msg::OtherSublassType::OTHER_SUBLASS_TYPE_UNKNOWN;
-                }
+            if(asn1Class->u.other.bit_mask & OtherSubclass_type_present){
+                ros_class.other.type.other_sublass_type = asn1Class->u.other.type;
+            }else{
+                ros_class.other.type.other_sublass_type = v2x_msgs::msg::OtherSublassType::OTHER_SUBLASS_TYPE_UNKNOWN;
+            }
 
-                if(asn1Class->u.other.bit_mask & OtherSubclass_confidence_present){
-                    ros_class.other.confidence.class_confidence = asn1Class->u.other.confidence;
-                }else{
-                    ros_class.other.confidence.class_confidence = v2x_msgs::msg::ClassConfidence::CLASS_CONFIDENCE_UNAVAILABLE;
-                }
-                break;
-            default:
-                break;
+            if(asn1Class->u.other.bit_mask & OtherSubclass_confidence_present){
+                ros_class.other.confidence.class_confidence = asn1Class->u.other.confidence;
+            }else{
+                ros_class.other.confidence.class_confidence = v2x_msgs::msg::ClassConfidence::CLASS_CONFIDENCE_UNAVAILABLE;
+            }
         }
         return ros_class;
     }
