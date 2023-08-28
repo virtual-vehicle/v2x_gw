@@ -25,14 +25,10 @@
 
 
 #include "V2XMHandler.h"
-#include "../utils/IVIMUtils.h"
 
 #include <nav_msgs/msg/odometry.hpp>
 
 #include <v2x_msgs/msg/ivim_list.hpp>
-
-
-
 
 
 class IVIMHandler : public V2XMHandler {

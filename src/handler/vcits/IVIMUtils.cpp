@@ -24,8 +24,8 @@
 * see <http://www.lsstcorp.org/LegalNotices/>.
 */
 
-#include "IVIMUtils.h"
-#include "IVIMHandler.h"
+#include "handler/vcits/specifics/IVIMUtils.h"
+#include "handler/IVIMHandler.h"
 
 rclcpp::Node * IVIMUtils::node_ = nullptr;
 
