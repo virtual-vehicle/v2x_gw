@@ -117,7 +117,7 @@ std::queue <std::pair<void *, size_t>> IVIMHandler::GetMessages() {
     final_ivim_buffer.length = 0;
 
     if ((ret_code = ossEncode((ossGlobal*)world_, IVIM_PDU, (IVIM*)ivim, &final_ivim_buffer)) != 0) {
-        RCLCPP_ERROR(GetNode()->get_logger(), "IVIM creation error: %d", ret_code);
+        RCLCPP_ERROR(GetNode()->get_logger(), "IVIM creation error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }else{
         ivim_queue.push(std::make_pair(final_ivim_buffer.value, final_ivim_buffer.length));
         auto& clk = *GetNode()->get_clock();
@@ -205,7 +205,7 @@ void IVIMHandler::RosIVIMCallback(const v2x_msgs::msg::IVIMList::SharedPtr ros_i
 void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr) {
   // reset data structure - TODO: free the pointers before memsetting to 0?
   IVIM* asn_ivim = (IVIM*) asn_ivim_void_ptr;
-  memset((void *) asn_ivim, 0, sizeof(IVIM));
+  memset((void *) asn_ivim_void_ptr, 0, sizeof(IVIM));
 
   // header
   asn_ivim->header.protocolVersion = ros_ivim.header.protocol_version; // V2 is most recent CDD header Q1 2022
@@ -214,18 +214,34 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr
 
   // ivi
   /// mandatory
-//  asn_ivim->ivi.mandatory.serviceProviderId.countryCode = ros_ivim.ivi.mandatory.service_provider_id.country_code; // TODO: bitstream
+  ////serviceProviderId
+  //TODO: convert int country code to string https://eur-lex.europa.eu/resource.html?uri=cellar:9a2fe08f-4580-11e9-a8ed-01aa75ed71a1.0014.02/DOC_3&format=PDF page 29
+  // maybe use int64_t_to_bit2
+  _bit2 tmpCountryCode = IVIMUtils::int64_t_to_bit2(ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code);
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.length = tmpCountryCode.length;//10;// TODO: significant bits (5 pro char)
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value = tmpCountryCode.value;//(unsigned char *) IVIMUtils::AllocateClearedMemory(sizeof(unsigned char) * 2);
+  std::string s = "AT";
+  strcpy((char*)asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value, s.c_str());
   asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier = ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier;
 
+  ////iviIdentificationNumber
   asn_ivim->ivi.mandatory.iviIdentificationNumber = ros_ivim.ivi.mandatory.ivi_identification_number.ivi_identification_number;
 
+  ////OPTIONAL: timeStamp
   if (ros_ivim.ivi.mandatory.time_stamp_present) {
+    asn_ivim->ivi.mandatory.bit_mask |= IviManagementContainer_timeStamp_present;
     asn_ivim->ivi.mandatory.timeStamp = ros_ivim.ivi.mandatory.time_stamp.timestamp_its;
   }
 
-  asn_ivim->ivi.mandatory.iviStatus = ros_ivim.ivi.mandatory.ivi_status.ivi_status;
+  ////OPTIONAL: validFrom
+  ////OPTIONAL: validTo
+  ////OPTIONAL: connectedIviStructures
 
-  /// optional
+  ////iviStatus
+  asn_ivim->ivi.mandatory.iviStatus = ros_ivim.ivi.mandatory.ivi_status.ivi_status;
+  ////OPTIONAL: connectedDenms
+
+  ///OPTIONAL: optional
   if (ros_ivim.ivi.optional_present) {
     asn_ivim->ivi.bit_mask |= optional_present;
     asn_ivim->ivi.optional = (IviContainers_ *) IVIMUtils::AllocateClearedMemory(sizeof(IviContainers_));
@@ -242,6 +258,10 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr
 
       IVIMUtils::fillASNIviContainer(ros_ivi_container, &(asn_ivi_containers->value));
     }
+  }
+
+  if(ossPrintPDU((OssGlobal*)world_, IVIM_PDU, asn_ivim)){
+    RCLCPP_INFO(GetNode()->get_logger(), "IVIM could not be printed");
   }
 }
 

@@ -1,0 +1,43 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/opt/ros/galactic/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dataspeed_can/dataspeed_can_msg_filters/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dataspeed_can/dataspeed_can_usb/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dbw_ros/dataspeed_dbw_common/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dbw_ros/dataspeed_ulc_can/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dbw_ros/dbw_fca_can/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dbw_ros/dbw_ford_can/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/dbw_ros/dbw_polaris_can/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/dataspeed/lusb/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/actuation/vifware_vehicle_interface/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/camera/spinnaker/spinnaker_camera_driver/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/camera/spinnaker/spinnaker_camera_nodes/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/gnss/novatel_oem7_driver/src/novatel_oem7_driver/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/gnss/ublox/ublox_gps/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/gnss/ublox/ublox_msgs/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/gnss/ublox/ublox_serialization/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/lidar/ouster_ros2/ouster_client/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/lidar/ouster_ros2/ouster_ros/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/drivers/sensing/radar/smartmicro_ros2_radars/umrr_ros2_driver/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/gateways/autoware_v2x_interface/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/gateways/ros2_socketcan/ros2_socketcan/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/gateways/v2x_gw/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/gateways/vifware_traffic_lights_interface/include/**",
+        "/home/steinbergeradm/projects/VIFWARE2/ade/VIFWARE/vifware_ws/src/planning/vifware_mission_planner/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

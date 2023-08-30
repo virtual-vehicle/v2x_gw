@@ -720,27 +720,29 @@ void* IVIMUtils::AllocateClearedMemory(size_t bytes) {
 _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
   _bit2 bit_string;
 
-  uint64_t used_bits = sizeof(int_64_t);
+  // calc nr of used bits
   uint64_t unused_bits = 0;
-  for( ; used_bits && !(int_64_t & (1 << (used_bits - 1))); --used_bits)
-    ++unused_bits;
+  uint64_t bitmask = pow(2,63);
+  while(!(int_64_t & bitmask)){
+    bitmask = bitmask >> 1;
+    unused_bits ++;
+  }
 
-  bit_string.length = used_bits / sizeof(uint8_t) + (used_bits % sizeof(uint8_t) == 0 ? 0 : 1);
+  bit_string.length = 64-unused_bits;
+
+  int char_length = bit_string.length / sizeof(uint8_t) + (bit_string.length % sizeof(uint8_t) == 0 ? 0 : 1);
   bit_string.value = 0;
 
   if (!bit_string.length)
     return bit_string;
 
-  bit_string.value = (unsigned char *) AllocateClearedMemory(sizeof(unsigned char) * bit_string.length);
+  bit_string.value = (unsigned char *) AllocateClearedMemory(sizeof(unsigned char) * char_length);
 
-  uint64_t size = bit_string.length;
+  uint64_t char_num = char_length-1;
   uint64_t i = 0;
-  for (; i < bit_string.length - 1; ++i, --size)
-    bit_string.value[i] = int_64_t | (0xff << ((size - 1) * sizeof(uint8_t) - unused_bits));
 
-  bit_string.value[i] = 0;
-  for (uint64_t j = 0; j < (sizeof(uint8_t) - unused_bits); ++j)
-    bit_string.value[i] |= int_64_t | (1 << j);
+  for (; i < char_length - 1; ++i, --char_num)
+     bit_string.value[i] = (unsigned char)(int_64_t >> (sizeof(unsigned char) * char_num)| (0xff));
 
   return bit_string;
 }
