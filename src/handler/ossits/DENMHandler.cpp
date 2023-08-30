@@ -201,7 +201,7 @@ v2x_msgs::msg::DENM DENMHandler::GetROSDENM(std::pair<void *, size_t> msg) {
 
     // decode
     if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) msg.first, (void**) &asn_denm)) != 0) {
-        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d", ret_code);
+        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
 
     auto &clk = *GetNode()->get_clock();

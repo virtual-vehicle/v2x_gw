@@ -276,7 +276,7 @@ v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
 
   // decode
   if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) message.first, (void**) &asn_ivim)) != 0) {
-      RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d", ret_code);
+      RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
   }
 
   auto &clk = *GetNode()->get_clock();

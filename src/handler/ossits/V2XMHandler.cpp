@@ -34,7 +34,7 @@ MsgType V2XMHandler::GetMessageType(std::pair<void *, size_t> msg){
     int pdu_num=ItsPduHeader_PDU;
     
     if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) msg.first, (void**) &its_pdu_header)) != 0) {
-        RCLCPP_INFO(GetNode()->get_logger(), "Decode error: " + ret_code);
+        RCLCPP_INFO(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
     
     msg_type = MsgType(its_pdu_header->messageID);

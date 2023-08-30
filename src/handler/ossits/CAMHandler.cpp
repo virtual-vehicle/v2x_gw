@@ -18,7 +18,7 @@ CAMHandler::CAMHandler(rclcpp::Node *gateway_node)
 
     int retcode;
     if (retcode = ossinit((OssGlobal*) world_, ITS_Container)) {
-	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d", retcode);
+	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d with message %s", retcode, ossGetErrMsg((OssGlobal*) world_));
     }
 
     ossSetEncodingFlags((OssGlobal*)world_, DEBUGPDU);
@@ -98,7 +98,7 @@ std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
         final_cam_buffer.value = NULL;  
         final_cam_buffer.length = 0;
         if ((ret_code = ossEncode((ossGlobal*)world_, CAM_PDU, cam, &final_cam_buffer)) != 0) {
-            RCLCPP_ERROR(GetNode()->get_logger(), "CAM creation error: %d", ret_code);
+            RCLCPP_ERROR(GetNode()->get_logger(), "CAM creation error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
         }else{
             //TODO: put multiple cams in queue if receiving from carla
             cam_queue.push(std::make_pair(final_cam_buffer.value, final_cam_buffer.length));
@@ -277,7 +277,7 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
 
     // decode
     if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) msg.first, (void**) &asn_cam)) != 0) {
-        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d", ret_code);
+        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
 
     // convert from asn_cam to ros_cam
