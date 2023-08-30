@@ -291,7 +291,7 @@ v2x_msgs::msg::IVIM IVIMHandler::GetROSIVIM(std::pair<void *, size_t> message) {
   // ivi
   /// mandatory
 
-  ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code = atoi((char*)asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value);
+  ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code = IVIMUtils::bitstream_to_int64(asn_ivim->ivi.mandatory.serviceProviderId.countryCode.length, asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value); //TODO: check
   ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier = asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier;
 
   ros_ivim.ivi.mandatory.ivi_identification_number.ivi_identification_number = asn_ivim->ivi.mandatory.iviIdentificationNumber;

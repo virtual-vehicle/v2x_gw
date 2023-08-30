@@ -71,6 +71,7 @@ public:
 
   // static int64_t BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string);
   static _bit2 int64_t_to_bit2(int64_t int_64_t);
+  static int64_t bitstream_to_int64(int length, unsigned char* value);
 
   // static std::string UTF8String_t_to_std_string(UTF8String_t* utf8_string);
   // static UTF8String_t std_string_to_UTF8String_t(std::string std_string);

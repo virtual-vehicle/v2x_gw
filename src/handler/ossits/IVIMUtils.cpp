@@ -690,7 +690,7 @@ v2x_msgs::msg::Text IVIMUtils::GetROSText(Text* asn_text) {
     ros_text.layout_component_id = asn_text->layoutComponentId;
   }
 
-  ros_text.language = atoi(reinterpret_cast<char*>(asn_text->language.value));
+  ros_text.language = bitstream_to_int64(asn_text->language.length, asn_text->language.value);
   ros_text.text_content = std::string(reinterpret_cast<char*>(asn_text->textContent));
 
   return ros_text;
@@ -703,19 +703,6 @@ void* IVIMUtils::AllocateClearedMemory(size_t bytes) {
   return allocated_memory;
 }
 
-// int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
-// {
-//   uint64_t value = 0;
-//   uint64_t size = bit_string->size;
-//   uint64_t i = 0;
-
-//   for (; i < bit_string->size - 1; ++i, --size)
-//     value |= bit_string->buf[i] << ((size - 1) * sizeof(uint8_t) - bit_string->bits_unused);
-
-//   value |= bit_string->buf[i] >> bit_string->bits_unused;
-
-//   return value;
-// }
 
 _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
   _bit2 bit_string;
@@ -747,25 +734,11 @@ _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
   return bit_string;
 }
 
-// std::string IVIMUtils::UTF8String_t_to_std_string(UTF8String_t* utf8_string) {
-//   std::string std_string;
-
-//   for (int i = 0; i < utf8_string->size; ++i) {
-//     std_string.push_back(utf8_string->buf[i]);
-//   }
-
-//   return std_string;
-// }
-
-// UTF8String_t IVIMUtils::std_string_to_UTF8String_t(std::string std_string){
-//   UTF8String_t utf8_string;
-
-//   utf8_string.size = std_string.size();
-//   utf8_string.buf = (uint8_t*) AllocateClearedMemory(sizeof(char) * utf8_string.size);
-
-//   for (int i = 0; i < utf8_string.size; ++i) {
-//     utf8_string.buf[i] = std_string.at(i);
-//   }
-
-//   return utf8_string;
-// }
+int64_t IVIMUtils::bitstream_to_int64(int length, unsigned char* value){
+  int64_t number = 0;
+  int char_length = length / sizeof(uint8_t) + (length % sizeof(uint8_t) == 0 ? 0 : 1);
+  for(int i = 0; i<char_length; i++){
+    number |= ((int64_t)value[i])<<((char_length - i)*sizeof(unsigned char));
+  }
+  return number;
+}
