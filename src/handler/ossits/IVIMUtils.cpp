@@ -709,8 +709,10 @@ _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
 
   // calc nr of used bits
   uint64_t unused_bits = 0;
-  uint64_t bitmask = pow(2,63);
-  while(!(int_64_t & bitmask)){
+  uint64_t bitmask = 1;
+  bitmask = bitmask << 63;
+
+  while(!(int_64_t & bitmask) && unused_bits<64){
     bitmask = bitmask >> 1;
     unused_bits ++;
   }
@@ -729,7 +731,7 @@ _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
   uint64_t i = 0;
 
   for (; i < char_length - 1; ++i, --char_num)
-     bit_string.value[i] = (unsigned char)(int_64_t >> (sizeof(unsigned char) * char_num)| (0xff));
+     bit_string.value[i] = (unsigned char)(int_64_t >> (sizeof(unsigned char) * i)| (0xff));
 
   return bit_string;
 }
@@ -738,7 +740,7 @@ int64_t IVIMUtils::bitstream_to_int64(int length, unsigned char* value){
   int64_t number = 0;
   int char_length = length / sizeof(uint8_t) + (length % sizeof(uint8_t) == 0 ? 0 : 1);
   for(int i = 0; i<char_length; i++){
-    number |= ((int64_t)value[i])<<((char_length - i)*sizeof(unsigned char));
+    number |= ((int64_t)value[i])<<(i*sizeof(unsigned char));
   }
   return number;
 }

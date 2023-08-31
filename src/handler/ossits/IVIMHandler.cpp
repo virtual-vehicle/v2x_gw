@@ -218,10 +218,8 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr
   //TODO: convert int country code to string https://eur-lex.europa.eu/resource.html?uri=cellar:9a2fe08f-4580-11e9-a8ed-01aa75ed71a1.0014.02/DOC_3&format=PDF page 29
   // maybe use int64_t_to_bit2
   _bit2 tmpCountryCode = IVIMUtils::int64_t_to_bit2(ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code);
-  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.length = tmpCountryCode.length;//10;// TODO: significant bits (5 pro char)
-  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value = tmpCountryCode.value;//(unsigned char *) IVIMUtils::AllocateClearedMemory(sizeof(unsigned char) * 2);
-  std::string s = "AT";
-  strcpy((char*)asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value, s.c_str());
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.length = tmpCountryCode.length;
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode.value = tmpCountryCode.value;
   asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier = ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier;
 
   ////iviIdentificationNumber
