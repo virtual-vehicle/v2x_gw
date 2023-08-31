@@ -316,6 +316,7 @@ void IVIMUtils::fillASNTcPart(v2x_msgs::msg::TcPart ros_tc_part, TcPart_t* asn_t
     *asn_tc_part->preStoredlayoutId = ros_tc_part.pre_storedlayout_id;
   }
 
+  //TODO: does not encode when text is present
   if (ros_tc_part.text_present) {
     asn_tc_part->text = (TextLines_t *) IVIMUtils::AllocateClearedMemory(sizeof(TextLines_t));
 
@@ -720,7 +721,7 @@ int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
   uint64_t i = 0;
 
   for (; i < bit_string->size - 1; ++i, --size)
-    value |= bit_string->buf[i] << ((size - 1) * sizeof(uint8_t) - bit_string->bits_unused);
+    value |= bit_string->buf[i] << ((size - 1) * 8 - bit_string->bits_unused);
 
   value |= bit_string->buf[i] >> bit_string->bits_unused;
 
@@ -729,28 +730,41 @@ int64_t IVIMUtils::BIT_STRING_t_to_int64_t(BIT_STRING_t* bit_string)
 
 BIT_STRING_t IVIMUtils::int64_t_to_BIT_STRING_t(int64_t int_64_t) {
   BIT_STRING_t bit_string;
+  if(int_64_t<0){
+    RCLCPP_INFO(node_->get_logger(),"Implementation for negative numbers missing");
+  }
 
-  uint64_t used_bits = sizeof(int_64_t);
-  uint64_t unused_bits = 0;
-  for( ; used_bits && !(int_64_t & (1 << (used_bits - 1))); --used_bits)
-    ++unused_bits;
+  uint64_t used_bits, unused_bits;
+  uint64_t bitmask = 1;
+  bitmask = bitmask << 63;
+  while(!(int_64_t & bitmask) && unused_bits<64){
+    bitmask = bitmask >> 1;
+    unused_bits ++;
+  }
 
-  bit_string.size = used_bits / sizeof(uint8_t) + (used_bits % sizeof(uint8_t) == 0 ? 0 : 1);
+  //TODO: check if negative and set highest bit to 1 (should be always 0 at the moment)
+
+  used_bits = 64-unused_bits;
+
+  used_bits++;
+  bit_string.size = used_bits / 8 + (used_bits % 8 == 0 ? 0 : 1);
   bit_string.buf = 0;
+  bit_string.bits_unused = 8-(used_bits % 8);
 
   if (!bit_string.size)
     return bit_string;
 
-  bit_string.buf = (uint8_t*) AllocateClearedMemory(sizeof(uint8_t) * bit_string.size);
+  bit_string.buf = (uint8_t*) AllocateClearedMemory(8 * bit_string.size);
 
   uint64_t size = bit_string.size;
   uint64_t i = 0;
-  for (; i < bit_string.size - 1; ++i, --size)
-    bit_string.buf[i] = int_64_t | (0xff << ((size - 1) * sizeof(uint8_t) - unused_bits));
-
-  bit_string.buf[i] = 0;
-  for (uint64_t j = 0; j < (sizeof(uint8_t) - unused_bits); ++j)
-    bit_string.buf[i] |= int_64_t | (1 << j);
+  for (; i < (bit_string.size-1); ++i, --size){
+    bit_string.buf[i] = (uint8_t)(int_64_t >> ((size - 1) * 8 - bit_string.bits_unused)) & 0xff;
+  }
+    
+  //TODO: should be uncommendted but then message does not encode anymore
+  // message looks like described in https://javadoc.iaik.tugraz.at/iaik_jce/current/iaik/asn1/BIT_STRING.html
+  //bit_string.buf[i] = (uint8_t)((int_64_t << bit_string.bits_unused) & 0xff);
 
   return bit_string;
 }

@@ -78,7 +78,7 @@ ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/handler/${USE_ITS_LIBRARY}/CPMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/DENMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/IVIMHandler.cpp
-        src/utils/IVIMUtils.cpp
+        src/handler/${USE_ITS_LIBRARY}/IVIMUtils.cpp
         )
 
 # reference headers

@@ -212,7 +212,7 @@ void IVIMHandler::fillIVIM(v2x_msgs::msg::IVIM ros_ivim, void* asn_ivim_void_ptr
 
   // ivi
   /// mandatory
-//  asn_ivim->ivi.mandatory.serviceProviderId.countryCode = ros_ivim.ivi.mandatory.service_provider_id.country_code; // TODO: bitstream
+  asn_ivim->ivi.mandatory.serviceProviderId.countryCode = IVIMUtils::int64_t_to_BIT_STRING_t(ros_ivim.ivi.mandatory.service_provider_id.country_code.country_code); // TODO: bitstream
   asn_ivim->ivi.mandatory.serviceProviderId.providerIdentifier = ros_ivim.ivi.mandatory.service_provider_id.provider_identifier.issuer_identifier;
 
   asn_ivim->ivi.mandatory.iviIdentificationNumber = ros_ivim.ivi.mandatory.ivi_identification_number.ivi_identification_number;

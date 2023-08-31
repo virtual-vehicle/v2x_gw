@@ -719,28 +719,28 @@ _bit2 IVIMUtils::int64_t_to_bit2(int64_t int_64_t) {
 
   bit_string.length = 64-unused_bits;
 
-  int char_length = bit_string.length / sizeof(uint8_t) + (bit_string.length % sizeof(uint8_t) == 0 ? 0 : 1);
+  int char_length = bit_string.length / 8 + (bit_string.length % 8 == 0 ? 0 : 1);
   bit_string.value = 0;
 
   if (!bit_string.length)
     return bit_string;
 
-  bit_string.value = (unsigned char *) AllocateClearedMemory(sizeof(unsigned char) * char_length);
+  bit_string.value = (unsigned char *) AllocateClearedMemory(8 * char_length);
 
   uint64_t char_num = char_length-1;
   uint64_t i = 0;
 
   for (; i < char_length - 1; ++i, --char_num)
-     bit_string.value[i] = (unsigned char)(int_64_t >> (sizeof(unsigned char) * i)| (0xff));
+     bit_string.value[i] = (unsigned char)(int_64_t >> (8 * i)| (0xff));
 
   return bit_string;
 }
 
 int64_t IVIMUtils::bitstream_to_int64(int length, unsigned char* value){
   int64_t number = 0;
-  int char_length = length / sizeof(uint8_t) + (length % sizeof(uint8_t) == 0 ? 0 : 1);
+  int char_length = length / 8 + (length % 8 == 0 ? 0 : 1);
   for(int i = 0; i<char_length; i++){
-    number |= ((int64_t)value[i])<<(i*sizeof(unsigned char));
+    number |= ((int64_t)value[char_length-1-i])<<(i*8);
   }
   return number;
 }
