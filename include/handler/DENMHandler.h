@@ -73,12 +73,16 @@ private:
     // DENM attributes
     void  *denm_;
 
+
     // Published topics
     rclcpp::Publisher<v2x_msgs::msg::DENMList>::SharedPtr denm_pub_;
 
     // Subsribed topics
+    rclcpp::Subscription<v2x_msgs::msg::DENMList>::SharedPtr ros_denm_sub_;
 
     // Callbacks
+    void RosDENMCallback(const v2x_msgs::msg::DENMList::SharedPtr ros_denm);
+
 
     // DENM generation
     void InitDENM();

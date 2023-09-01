@@ -35,6 +35,8 @@ DENMHandler::DENMHandler(rclcpp::Node *gateway_node)
     denm_pub_ = GetNode()->create_publisher<v2x_msgs::msg::DENMList>("denm/received", 1);
 
     // subscriber
+    ros_denm_sub_ = GetNode()->create_subscription<v2x_msgs::msg::DENMList>
+            ("denm/transmitted", 10, std::bind(&DENMHandler::RosDENMCallback, this, std::placeholders::_1));
 }
 
 DENMHandler::~DENMHandler() {
@@ -85,6 +87,23 @@ std::queue <std::pair<void *, size_t>> DENMHandler::GetMessages() {
     if (GetFrequency(current_timestamp, prev_process_timestamp) <= 10.0) {
 
         auto &clk = *GetNode()->get_clock();
+        // DENM creation
+        OssBuf final_denm_buffer;
+        int ret_code;
+        
+        DENM* denm = (DENM*) denm_;
+        final_denm_buffer.value = NULL;  
+        final_denm_buffer.length = 0;
+        if ((ret_code = ossEncode((ossGlobal*)world_, DENM_PDU, denm, &final_denm_buffer)) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "denm creation error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
+        }else{
+            //TODO: put multiple denms in queue if receiving from carla
+            denm_queue.push(std::make_pair(final_denm_buffer.value, final_denm_buffer.length));
+            auto& clk = *GetNode()->get_clock();
+            RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, DENM_DEBUG_MSG_THROTTLE_MS,
+                                        "denm created successfully with size %ld", final_denm_buffer.length);
+        }
+        
         //RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, DENM_DEBUG_MSG_THROTTLE_MS,
         //                     "GetMessages(): not yet implemented for DENM");
 
@@ -144,7 +163,115 @@ void DENMHandler::ReadConfig() {
 }
 
 // Callbacks
+void DENMHandler::RosDENMCallback(const v2x_msgs::msg::DENMList::SharedPtr ros_denmlist) {
+    if(ros_denmlist->denms.size() == 0){
+        return;
+    }
 
+    if(ros_denmlist->denms.size() > 1){
+        RCLCPP_INFO(GetNode()->get_logger(),"Only sending of one DENM is supported");
+    }
+    //TODO: fill DENM
+    // reset data structure
+    memset(denm_, 0, sizeof(DENM));
+
+    v2x_msgs::msg::DENM ros_denm = ros_denmlist->denms[0];
+
+    // set header
+    ((DENM*)denm_)->header.protocolVersion = ros_denm.header.protocol_version;
+    ((DENM*)denm_)->header.messageID = ros_denm.header.message_id;
+    ((DENM*)denm_)->header.stationID = ros_denm.header.station_id.station_id;
+
+    //ManagementContainer
+    ((DENM*)denm_)->denm.management.actionID.originatingStationID = ros_denm.denm.management.action_id.originating_station_id.station_id;
+    ((DENM*)denm_)->denm.management.actionID.sequenceNumber = ros_denm.denm.management.action_id.sequence_number.sequence_number;
+
+    ((DENM*)denm_)->denm.management.detectionTime = ros_denm.denm.management.detection_time.timestamp_its;
+    ((DENM*)denm_)->denm.management.referenceTime = ros_denm.denm.management.reference_time.timestamp_its;
+
+    // management.termination 
+    if(ros_denm.denm.management.termination_present){
+        ((DENM*)denm_)->denm.management.bit_mask |= termination_present;
+        ((DENM*)denm_)->denm.management.termination = Termination(ros_denm.denm.management.termination.termination);
+    }
+
+    ((DENM*)denm_)->denm.management.eventPosition.latitude = ros_denm.denm.management.event_position.latitude.latitude;
+    ((DENM*)denm_)->denm.management.eventPosition.longitude = ros_denm.denm.management.event_position.longitude.longitude;
+    ((DENM*)denm_)->denm.management.eventPosition.positionConfidenceEllipse.semiMajorConfidence = 
+        ros_denm.denm.management.event_position.position_confidence_ellipse.semi_major_confidence.semi_axis_length;
+    ((DENM*)denm_)->denm.management.eventPosition.positionConfidenceEllipse.semiMinorConfidence = 
+        ros_denm.denm.management.event_position.position_confidence_ellipse.semi_minor_confidence.semi_axis_length;
+    ((DENM*)denm_)->denm.management.eventPosition.positionConfidenceEllipse.semiMajorOrientation = 
+        ros_denm.denm.management.event_position.position_confidence_ellipse.semi_major_orientation.heading_value;
+    ((DENM*)denm_)->denm.management.eventPosition.altitude.altitudeValue = ros_denm.denm.management.event_position.altitude.altitude_value.altitude_value;
+    ((DENM*)denm_)->denm.management.eventPosition.altitude.altitudeConfidence = AltitudeConfidence(ros_denm.denm.management.event_position.altitude.altitude_confidence.altitude_confidence);
+
+    // management.relevanceDistance NOT SET -> set in bitmask
+    if(ros_denm.denm.management.relevance_distance_present){
+        ((DENM*)denm_)->denm.management.bit_mask |= relevanceDistance_present;
+        ((DENM*)denm_)->denm.management.relevanceDistance = RelevanceDistance(ros_denm.denm.management.relevance_distance.relevance_distance);
+    }
+    // management.relevanceTrafficDirection NOT SET -> set in bitmask
+    if(ros_denm.denm.management.relevance_traffic_direction_present){
+        ((DENM*)denm_)->denm.management.bit_mask |= relevanceTrafficDirection_present;
+        ((DENM*)denm_)->denm.management.relevanceTrafficDirection = RelevanceTrafficDirection(ros_denm.denm.management.relevance_traffic_direction.relevance_traffic_direction);
+    }
+    // management.validityDuration NOT SET -> set in bitmask
+    if(ros_denm.denm.management.validity_duration_present){
+        ((DENM*)denm_)->denm.management.bit_mask |= validityDuration_present;
+        ((DENM*)denm_)->denm.management.validityDuration = ros_denm.denm.management.validity_duration.validity_duration;
+    }
+    // management.transmissionInterval NOT SET -> set in bitmask
+    if(ros_denm.denm.management.transmission_interval_present){
+        ((DENM*)denm_)->denm.management.bit_mask |= transmissionInterval_present;
+        ((DENM*)denm_)->denm.management.transmissionInterval = ros_denm.denm.management.transmission_interval.transmission_interval;
+    }
+
+    ((DENM*)denm_)->denm.management.stationType = ros_denm.denm.management.station_type.station_type;
+
+    //SituationContainer
+    if(ros_denm.denm.situation_present){
+        ((DENM*)denm_)->denm.bit_mask |= situation_present;
+        ((DENM*)denm_)->denm.situation.informationQuality = ros_denm.denm.situation.information_quality.information_quality;
+        ((DENM*)denm_)->denm.situation.eventType.causeCode = ros_denm.denm.situation.event_type.cause_code.cause_code_type;
+        ((DENM*)denm_)->denm.situation.eventType.subCauseCode = ros_denm.denm.situation.event_type.sub_cause_code.sub_cause_code_type;
+        if(ros_denm.denm.situation.linked_cause_present){
+            ((DENM*)denm_)->denm.situation.bit_mask |= linkedCause_present;
+            ((DENM*)denm_)->denm.situation.linkedCause.causeCode = ros_denm.denm.situation.linked_cause.cause_code.cause_code_type;
+            ((DENM*)denm_)->denm.situation.linkedCause.subCauseCode = ros_denm.denm.situation.linked_cause.sub_cause_code.sub_cause_code_type;
+        }
+        if(ros_denm.denm.situation.event_history_present){
+            ((DENM*)denm_)->denm.situation.bit_mask |= eventHistory_present;
+            ((DENM*)denm_)->denm.situation.eventHistory = (EventHistory_*) malloc(sizeof(EventHistory_));
+            memset(((DENM*)denm_)->denm.situation.eventHistory, 0, sizeof(EventHistory_));
+            EventHistory_* asn_eh = ((DENM*)denm_)->denm.situation.eventHistory;
+            bool first = true;
+            for(v2x_msgs::msg::EventPoint_ ros_ep : ros_denm.denm.situation.event_history.history){
+                if (!first){
+                    asn_eh->next = (EventHistory_*) malloc(sizeof(EventHistory_));
+                    memset(asn_eh->next, 0, sizeof(EventHistory_));
+                    asn_eh = asn_eh->next;
+                }
+                asn_eh->value.eventPosition.deltaLatitude = ros_ep.event_position.delta_latitude.delta_latitude;
+                asn_eh->value.eventPosition.deltaLongitude = ros_ep.event_position.delta_longitude.delta_longitude;
+                asn_eh->value.eventPosition.deltaAltitude = ros_ep.event_position.delta_altitude.delta_altitude;
+                if(ros_ep.event_delta_time_present){
+                    asn_eh->value.bit_mask |= eventDeltaTime_present;
+                    asn_eh->value.eventDeltaTime = ros_ep.event_delta_time.path_delta_time;
+                }
+                asn_eh->value.informationQuality = ros_ep.information_quality.information_quality;
+
+                first = false;
+            }
+        }
+    }
+
+    //LocationContainer
+    //((DENM*)denm_)->denm.bit_mask |= location_present; // NOT SET;
+
+    //AlacarteContainer
+    //((DENM*)denm_)->denm.bit_mask |= alacarte_present; // NOT SET;
+}
 
 // DENM generation
 void DENMHandler::InitDENM() {
@@ -220,7 +347,7 @@ v2x_msgs::msg::DENM DENMHandler::GetROSDENM(std::pair<void *, size_t> msg) {
     
     ros_denm.denm.management.detection_time.timestamp_its = asn_denm->denm.management.detectionTime;
     
-    ros_denm.denm.management.detection_time.timestamp_its = asn_denm->denm.management.referenceTime;
+    ros_denm.denm.management.reference_time.timestamp_its = asn_denm->denm.management.referenceTime;
 
     if (asn_denm->denm.management.bit_mask & termination_present) {
         ros_denm.denm.management.termination_present = true;
@@ -242,6 +369,7 @@ v2x_msgs::msg::DENM DENMHandler::GetROSDENM(std::pair<void *, size_t> msg) {
         ros_denm.denm.management.relevance_traffic_direction.relevance_traffic_direction = RelevanceTrafficDirection(asn_denm->denm.management.relevanceTrafficDirection);
     }
     if (asn_denm->denm.management.bit_mask & validityDuration_present) {
+        ros_denm.denm.management.validity_duration_present = true;
         ros_denm.denm.management.validity_duration.validity_duration = ValidityDuration(asn_denm->denm.management.validityDuration);
     }
     if (asn_denm->denm.management.bit_mask & transmissionInterval_present) {
