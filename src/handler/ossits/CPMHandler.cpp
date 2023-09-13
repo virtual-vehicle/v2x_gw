@@ -447,9 +447,12 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     int ret_code;
 
     int pdu_num=CPM_PDU;
+    OssBuf buffer;
+    buffer.length = msg.second;
+    buffer.value = (unsigned char*) msg.first;
 
     // decode
-    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) msg.first, (void**) &asn_cpm)) != 0) {
+    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, &buffer, (void**) &asn_cpm)) != 0) {
         RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
 

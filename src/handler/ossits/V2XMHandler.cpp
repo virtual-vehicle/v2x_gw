@@ -18,6 +18,14 @@ V2XMHandler::V2XMHandler(MsgType msg_type = MsgType::kNone, rclcpp::Node *gatewa
     message_received_counter_ = 0;
     message_sent_counter_ = 0;
     world_ = malloc(sizeof(OssGlobal));
+
+    int retcode;
+    if (retcode = ossinit((OssGlobal*) world_, ITS_Container)) {
+	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d with message %s", retcode, ossGetErrMsg((OssGlobal*) world_));
+    }
+
+    ossSetEncodingFlags((OssGlobal*)world_, DEBUGPDU);
+    ossSetDecodingFlags((OssGlobal*)world_, DEBUGPDU);
 }
 
 V2XMHandler::~V2XMHandler() {
@@ -28,13 +36,17 @@ V2XMHandler::~V2XMHandler() {
 // public methods
 MsgType V2XMHandler::GetMessageType(std::pair<void *, size_t> msg){
     MsgType msg_type = MsgType::kNone;
-    ItsPduHeader *its_pdu_header = NULL;
+    ItsPduHeader *its_pdu_header = nullptr;
     int ret_code;
+    OssBuf buffer;
+    buffer.length = msg.second;
+    buffer.value = (unsigned char*) msg.first;
 
     int pdu_num=ItsPduHeader_PDU;
     
-    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, (OssBuf*) msg.first, (void**) &its_pdu_header)) != 0) {
+    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, &buffer, (void**) &its_pdu_header)) != 0) {
         RCLCPP_INFO(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
+        return MsgType::kNone;
     }
     
     msg_type = MsgType(its_pdu_header->messageID);
