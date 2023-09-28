@@ -1,7 +1,7 @@
 # V2X Gateway
 The *v2x_gw* is part of the [vehicleCAPTAIN](https://github.com/virtual-vehicle/vehicle_captain) toolbox.
 
-![vehicleCAPTAIN Demo Board - Closed](res/figures/hla.png "Overview of the vehicleCAPTAIN toolbox")
+![vehicleCAPTAIN Demo Board - Closed](res/figures/hla.png "High Level Architecture (HLA) of the v2x_gw node")
 
 The *v2x_gw* is a central ROS2 node that (i) connects to the vehicleCAPTAIN routing core (ii) converts V2X messages to ROS messages (iii) converts ROS messages to V2X messages.
 
