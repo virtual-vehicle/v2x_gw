@@ -32,10 +32,6 @@
 
 #include <v2x_msgs/msg/denm_list.hpp>
 
-extern "C" {
-#include "vcits/denm/DENM.h"
-}
-
 class DENMHandler : public V2XMHandler {
 public:
     /// Initializes the DENM handler
@@ -75,14 +71,18 @@ private:
     // constants that should be set by code
 
     // DENM attributes
-    DENM_t  *denm_;
+    void  *denm_;
+
 
     // Published topics
     rclcpp::Publisher<v2x_msgs::msg::DENMList>::SharedPtr denm_pub_;
 
     // Subsribed topics
+    rclcpp::Subscription<v2x_msgs::msg::DENMList>::SharedPtr ros_denm_sub_;
 
     // Callbacks
+    void RosDENMCallback(const v2x_msgs::msg::DENMList::SharedPtr ros_denm);
+
 
     // DENM generation
     void InitDENM();

@@ -31,10 +31,6 @@
 #include "V2XMHandler.h"
 #include <v2x_msgs/msg/cpm_list.hpp>
 
-extern "C" {
-#include "vcits/cpm/CPM.h"
-}
-
 class CPMHandler : public V2XMHandler {
 public:
     /// Initializes the CPM handler
@@ -65,11 +61,12 @@ private:
     // necessary handler processing constants
     bool CPM_ACTIVE;
     long CPM_DEBUG_MSG_THROTTLE_MS;
+    bool CPM_WRITE_TRACE_FILE;
 
     bool new_data_received_;
 
     // CPM attributes
-    CPM_t  *cpm_;
+    void  *cpm_;
 
     // Published topics
     rclcpp::Publisher<v2x_msgs::msg::CPMList>::SharedPtr cpm_pub_;

@@ -34,11 +34,6 @@
 
 #include <v2x_msgs/msg/cam_list.hpp>
 
-extern "C" {
-#include "vcits/cam/CAM.h"
-}
-
-
 class CAMHandler : public V2XMHandler {
 public:
     /// Initializes the CAM handler
@@ -69,11 +64,12 @@ private:
     // necessary handler processing constants
     bool CAM_ACTIVE;
     long CAM_DEBUG_MSG_THROTTLE_MS;
+    bool CAM_WRITE_TRACE_FILE;
     
     bool new_data_received_;
 
     // CAM attributes
-    std::vector <CAM_t*> cam_list_;
+    std::vector <void*> cam_list_;
     std::mutex cam_list_lock_;
 
     // Published topics
@@ -87,7 +83,7 @@ private:
 
     // CAM generation
     void InitCAM();
-    void fillCAM(v2x_msgs::msg::CAM ros_cam, CAM_t* cam);
+    void fillCAM(v2x_msgs::msg::CAM ros_cam, void* cam_void_ptr);
 
 
     v2x_msgs::msg::CAM GetROSCAM(std::pair<void *, size_t> msg);

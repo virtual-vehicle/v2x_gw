@@ -40,7 +40,8 @@ enum class MsgType : int {
     kNone = 0,
     kDENM = 1,
     kCAM = 2,
-    kCPM = 14
+    kCPM = 14,
+    kIVIM = 6
 } ;
 
 class V2XMHandler {
@@ -78,6 +79,9 @@ protected:
     // attributes - general
     bool is_active_;
     bool is_configured_;
+
+    // oss asn1 world pointer
+    void* world_;
 
     // attributes - messages
     int message_received_counter_;

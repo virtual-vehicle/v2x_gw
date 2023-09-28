@@ -4,15 +4,7 @@
 #include <sstream>
 
 extern "C" {
-#include "vcits/cam/LowFrequencyContainer.h"
-#include "vcits/cam/SpecialVehicleContainer.h"
-
-#include "vcits/exceptions/V2XLibExceptions.h"
-
-#include "vcits/parser/Decoder.h"
-#include "vcits/parser/Encoder.h"
-
-#include "vcits/cam/CAM.h"
+#include "ossits/include/ossits/ossits.h"
 }
 
 CAMHandler::CAMHandler(rclcpp::Node *gateway_node)
@@ -21,6 +13,24 @@ CAMHandler::CAMHandler(rclcpp::Node *gateway_node)
     // configure
     ReadConfig();
     new_data_received_ = false;
+
+    world_ = malloc(sizeof(OssGlobal));
+
+    int retcode;
+    if (retcode = ossinit((OssGlobal*) world_, ITS_Container)) {
+	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d with message %s", retcode, ossGetErrMsg((OssGlobal*) world_));
+    }
+
+    ossSetEncodingFlags((OssGlobal*)world_, DEBUGPDU);
+    ossSetDecodingFlags((OssGlobal*)world_, DEBUGPDU);
+
+    if(CAM_WRITE_TRACE_FILE){
+        std::string trace_path_str="trace.out";
+        char* trace_path = new char[trace_path_str.length() + 1];
+        strcpy(trace_path, trace_path_str.c_str());
+        ossOpenTraceFile((ossGlobal*)world_, trace_path);
+    }
+     
 
     // publisher
     cam_pub_ = GetNode()->create_publisher<v2x_msgs::msg::CAMList>("cam/received", 1);
@@ -34,9 +44,14 @@ CAMHandler::~CAMHandler() {
     // free the cam structure
     while(cam_list_.size() > 0){
         //frees and removes last element of cam_list
-        ASN_STRUCT_FREE(asn_DEF_CAM ,cam_list_.back());
+        int ret_code;
+        if ((ret_code = ossFreePDU((ossGlobal*)world_, CAM_PDU, cam_list_.back())) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+        }
         cam_list_.pop_back();
     }
+    ossterm((ossGlobal*)world_);
+    free(world_);
 }
 
 std::vector<diagnostic_msgs::msg::KeyValue> CAMHandler::GetDiagnostics() {
@@ -64,8 +79,6 @@ std::vector<diagnostic_msgs::msg::KeyValue> CAMHandler::GetDiagnostics() {
 
 std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
 
-    
-
     // processing variables
     rclcpp::Time current_timestamp = GetNode()->get_clock()->now();
     std::queue <std::pair<void *, size_t>> cam_queue; // there will only be one CAM in the queue, despite the queue
@@ -74,30 +87,25 @@ std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
         return cam_queue;
     }
 
+    
     // CAM creation
-    size_t final_cam_size;
-    void *final_cam_buffer;
+    OssBuf final_cam_buffer;
+    int ret_code;
 
     cam_list_lock_.lock();
     for(void* cam_void_ptr : cam_list_){
-        CAM_t* cam = (CAM_t*) cam_void_ptr;
-        try {
-            Encoder::validate_constraints(&asn_DEF_CAM, cam);
-            final_cam_size = Encoder::encode(&asn_DEF_CAM, nullptr, cam, &final_cam_buffer);
-
-            if (final_cam_size > 0) {
-                //TODO: put multiple cams in queue if receiving from carla
-                cam_queue.push(std::make_pair(final_cam_buffer, final_cam_size));
-                auto& clk = *GetNode()->get_clock();
-                RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, CAM_DEBUG_MSG_THROTTLE_MS,
-                                        "CAM created successfully with size %ld", final_cam_size);
-            } else {
-                RCLCPP_ERROR(GetNode()->get_logger(), "CAM creation failed - you should probably stop the program");
-            }
-        } catch (ValidateConstraintsException e) {
-            RCLCPP_ERROR(GetNode()->get_logger(), e.what());
-        } catch (EncodingException e) {
-            RCLCPP_ERROR(GetNode()->get_logger(), e.what());
+        CAM* cam = (CAM*) cam_void_ptr;
+        final_cam_buffer.value = NULL;  
+        final_cam_buffer.length = 0;
+        if ((ret_code = ossEncode((ossGlobal*)world_, CAM_PDU, cam, &final_cam_buffer)) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "CAM creation error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
+        }else{
+            //TODO: put multiple cams in queue if receiving from carla
+            cam_queue.push(std::make_pair(final_cam_buffer.value, final_cam_buffer.length));
+            auto& clk = *GetNode()->get_clock();
+            RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, CAM_DEBUG_MSG_THROTTLE_MS,
+                                        "CAM created successfully with size %ld", final_cam_buffer.length);
+            
         }
     }  
     new_data_received_ = false;
@@ -105,7 +113,7 @@ std::queue <std::pair<void *, size_t>> CAMHandler::GetMessages() {
 
     // diagnostics
     message_sent_counter_ += cam_queue.size();
-
+    
     return cam_queue;
 }
 
@@ -134,7 +142,11 @@ void CAMHandler::ReadConfig() {
     GetNode()->get_parameter("cam.active", CAM_ACTIVE);
     GetNode()->declare_parameter("cam.handler_debug_msg_throttle_ms", 5000);
     GetNode()->get_parameter("cam.handler_debug_msg_throttle_ms", CAM_DEBUG_MSG_THROTTLE_MS);
+    
+    GetNode()->declare_parameter("cam.trace_file", false);
+    GetNode()->get_parameter("cam.trace_file", CAM_WRITE_TRACE_FILE);
 
+    
     if (CAM_ACTIVE) {
         is_active_ = true;
     }
@@ -146,13 +158,17 @@ void CAMHandler::ReadConfig() {
 void CAMHandler::RosCAMCallback(const v2x_msgs::msg::CAMList::SharedPtr ros_camlist) {
     cam_list_lock_.lock();
     while(cam_list_.size() < ros_camlist->cams.size()){
-        CAM_t* next_cam = (CAM_t *) malloc(sizeof(CAM_t));
+        RCLCPP_ERROR(GetNode()->get_logger(), "Malloced CAM with size %ld", sizeof(CAM));
+        CAM* next_cam = (CAM *) malloc(sizeof(CAM));
         cam_list_.push_back(next_cam);
     }
 
     while(cam_list_.size() > ros_camlist->cams.size()){
-        //frees and removes last element of cam_list
-        ASN_STRUCT_FREE(asn_DEF_CAM, cam_list_.back());
+        //frees and removes last element of cam_list TODO test
+        int ret_code;
+        if ((ret_code = ossFreePDU((ossGlobal*)world_, CAM_PDU, cam_list_.back())) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+        }
         cam_list_.pop_back();
     }
 
@@ -173,17 +189,16 @@ void CAMHandler::RosCAMCallback(const v2x_msgs::msg::CAMList::SharedPtr ros_caml
 
 // CAM generation
 void CAMHandler::fillCAM(v2x_msgs::msg::CAM ros_cam, void* cam_void_ptr) {
-    CAM_t* cam = (CAM_t*) cam_void_ptr;
+    CAM* cam = (CAM*) cam_void_ptr;
     // reset data structure
-    memset((void *) cam, 0, sizeof(CAM_t));
-    
+    memset((void *) cam, 0, sizeof(CAM));
+
     // set header
     cam->header.protocolVersion = 2; // V2 is most recent CDD header Q1 2022
     cam->header.messageID = 2; // CAM
     cam->header.stationID = ros_cam.header.station_id.station_id;
 
     // Update the CAM with new data
-
     // BasicContainer
     cam->cam.generationDeltaTime = ros_cam.cam.generation_delta_time.generation_delta_time;
     cam->cam.camParameters.basicContainer.stationType = ros_cam.cam.cam_parameters.basic_container.station_type.station_type;
@@ -193,78 +208,79 @@ void CAMHandler::fillCAM(v2x_msgs::msg::CAM ros_cam, void* cam_void_ptr) {
     cam->cam.camParameters.basicContainer.referencePosition.positionConfidenceEllipse.semiMinorConfidence = ros_cam.cam.cam_parameters.basic_container.reference_position.position_confidence_ellipse.semi_minor_confidence.semi_axis_length;
     cam->cam.camParameters.basicContainer.referencePosition.positionConfidenceEllipse.semiMajorOrientation = ros_cam.cam.cam_parameters.basic_container.reference_position.position_confidence_ellipse.semi_major_orientation.heading_value; // NOT SET
     cam->cam.camParameters.basicContainer.referencePosition.altitude.altitudeValue = ros_cam.cam.cam_parameters.basic_container.reference_position.altitude.altitude_value.altitude_value; // position callback
-    cam->cam.camParameters.basicContainer.referencePosition.altitude.altitudeConfidence = ros_cam.cam.cam_parameters.basic_container.reference_position.altitude.altitude_confidence.altitude_confidence;
-
+    cam->cam.camParameters.basicContainer.referencePosition.altitude.altitudeConfidence = AltitudeConfidence(ros_cam.cam.cam_parameters.basic_container.reference_position.altitude.altitude_confidence.altitude_confidence);
+    
     // HighFrequencyContainer - needed for vehicles
     if(ros_cam.cam.cam_parameters.high_frequency_container.high_frequency_container_container_select = v2x_msgs::msg::HighFrequencyContainer::HIGH_FREQUENCY_CONTAINER_BASIC_VEHICLE_CONTAINER_HIGH_FREQUENCY){
-        cam->cam.camParameters.highFrequencyContainer.present = HighFrequencyContainer_PR_basicVehicleContainerHighFrequency;
+        cam->cam.camParameters.highFrequencyContainer.choice = basicVehicleContainerHighFrequency_chosen;
 
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingValue = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingValue = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_value.heading_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingConfidence = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingConfidence = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_confidence.heading_confidence;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedValue = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedValue = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_value.speed_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedConfidence = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedConfidence = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_confidence.speed_confidence;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.driveDirection = 
-                ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.drive_direction.drive_direction;
-
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.driveDirection = DriveDirection(ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.drive_direction.drive_direction);
+        
         //set vehicles mesurements
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue =
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue =
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_value.vehicle_length_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication = 
-                ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_confidence_indication.vehicle_length_confidence_indication;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleWidth =
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication = VehicleLengthConfidenceIndication(ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_confidence_indication.vehicle_length_confidence_indication);
+        
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleWidth =
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_width.vehicle_width;
 
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_confidence.acceleration_confidence;
 
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureValue = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureValue = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_value.curvature_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureConfidence = 
-                ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_confidence.curvature_confidence;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvatureCalculationMode = 
-                ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature_calculation_mode.curvature_calculation_mode;
-
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateValue = 
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureConfidence = CurvatureConfidence(ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_confidence.curvature_confidence);
+        
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvatureCalculationMode = CurvatureCalculationMode(ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature_calculation_mode.curvature_calculation_mode);
+        
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateValue = 
                 ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_value.yaw_rate_value;
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence = 
-                ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence;
-
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence = YawRateConfidence(ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence);
+        
+        cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask = 0;
         //TODO not yet fully implemented -> only important parts, up until here ...
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.accelerationControl = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lanePosition = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.steeringWheelAngle = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lateralAcceleration = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.verticalAcceleration = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.performanceClass = nullptr; // NOT SET
-        cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.cenDsrcTollingZone = nullptr; // NOT SET
+        //cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.accelerationControl = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.lanePosition = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.steeringWheelAngle = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.lateralAcceleration = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.verticalAcceleration = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.performanceClass = nullptr; // NOT SET
+        // cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.cenDsrcTollingZone = nullptr; // NOT SET
     }
-    
-    // LowFrequencyContainer - needed for special vehicles
-    cam->cam.camParameters.lowFrequencyContainer = nullptr; // NOT SET
-
-    // LowFrequencyContainer - needed for specific special vehicles
-    cam->cam.camParameters.specialVehicleContainer = nullptr; // NOT SET
+    cam->cam.camParameters.bit_mask = 0;
+    // LowFrequencyContainer - needed for special vehicles //NOT SET
+    //cam->cam.camParameters.bit_mask |= lowFrequencyContainer_present; 
+    //cam->cam.camParameters.lowFrequencyContainer = nullptr; // NOT SET
+    // LowFrequencyContainer - needed for specific special vehicles //NOT SET
+    //cam->cam.camParameters.bit_mask |= specialVehicleContainer_present;
+    //cam->cam.camParameters.specialVehicleContainer = nullptr; // NOT SET
 }
 
 
 v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
     // variables
     v2x_msgs::msg::CAM ros_cam;
-    CAM_t *asn_cam = nullptr;
+    CAM *asn_cam = nullptr;
+    int ret_code;
+
+    int pdu_num=CAM_PDU;
+    OssBuf buffer;
+    buffer.length = msg.second;
+    buffer.value = (unsigned char*) msg.first;
 
     // decode
-    try {
-        asn_cam = (CAM_t *) Decoder::decode(&asn_DEF_CAM, msg.first, msg.second);
-    } catch (DecodingException e) {
-        RCLCPP_ERROR(GetNode()->get_logger(), e.what());
-        RCLCPP_INFO(GetNode()->get_logger(),
-                    "If decoding fails, we throw away everything, as we would have to check how far we were able to decode");
+    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, &buffer, (void**) &asn_cam)) != 0) {
+        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
 
     // convert from asn_cam to ros_cam
@@ -286,25 +302,25 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
     ros_cam.cam.cam_parameters.basic_container.reference_position.altitude.altitude_confidence.altitude_confidence = asn_cam->cam.camParameters.basicContainer.referencePosition.altitude.altitudeConfidence;
 
     //HighFrequencyContainer
-    ros_cam.cam.cam_parameters.high_frequency_container.high_frequency_container_container_select = asn_cam->cam.camParameters.highFrequencyContainer.present;
+    ros_cam.cam.cam_parameters.high_frequency_container.high_frequency_container_container_select = asn_cam->cam.camParameters.highFrequencyContainer.choice;
     if (ros_cam.cam.cam_parameters.high_frequency_container.high_frequency_container_container_select ==
         ros_cam.cam.cam_parameters.high_frequency_container.HIGH_FREQUENCY_CONTAINER_BASIC_VEHICLE_CONTAINER_HIGH_FREQUENCY) {
         //VehicleContainer
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_value.heading_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_confidence.heading_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingConfidence;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_value.speed_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_confidence.speed_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedConfidence;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.drive_direction.drive_direction = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.driveDirection;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_value.vehicle_length_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_confidence_indication.vehicle_length_confidence_indication = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_width.vehicle_width = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleWidth;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_confidence.acceleration_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_value.curvature_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_confidence.curvature_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureConfidence;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature_calculation_mode.curvature_calculation_mode = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvatureCalculationMode;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_value.yaw_rate_value = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateValue;
-        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence = asn_cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_value.heading_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.heading.heading_confidence.heading_confidence = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingConfidence;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_value.speed_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.speed.speed_confidence.speed_confidence = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedConfidence;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.drive_direction.drive_direction = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.driveDirection;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_value.vehicle_length_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_length.vehicle_length_confidence_indication.vehicle_length_confidence_indication = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.vehicle_width.vehicle_width = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleWidth;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.longitudinal_acceleration.longitudinal_acceleration_confidence.acceleration_confidence = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_value.curvature_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature.curvature_confidence.curvature_confidence = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureConfidence;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.curvature_calculation_mode.curvature_calculation_mode = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvatureCalculationMode;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_value.yaw_rate_value = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateValue;
+        ros_cam.cam.cam_parameters.high_frequency_container.basic_vehicle_container_high_frequency.yaw_rate.yaw_rate_confidence.yaw_rate_confidence = asn_cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence;
 
         //TODO not yet fully implemented -> only important parts, up until here ...
         if (false) {
@@ -467,10 +483,10 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
         }
     }
 
-    // free memory
-    ASN_STRUCT_FREE(asn_DEF_CAM, asn_cam);
+    /* resets the memory*/
+    ossFreePDU((ossGlobal*)world_, pdu_num, asn_cam);
     asn_cam = nullptr;
-
+    
     // return converted cam
     return ros_cam;
 }
@@ -478,7 +494,7 @@ v2x_msgs::msg::CAM CAMHandler::GetROSCAM(std::pair<void *, size_t> msg) {
 // for debug
 void CAMHandler::PrintCAM() {
     for(void* cam_void_ptr : cam_list_){
-        CAM_t* cam = (CAM_t*) cam_void_ptr;
+        CAM* cam = (CAM*) cam_void_ptr;
         std::ostringstream oss;
 
         oss << "--- --- --- CAM --- --- ---" << "\n";
@@ -512,175 +528,153 @@ void CAMHandler::PrintCAM() {
         oss << "     |-altitudeConfidence: "
             << cam->cam.camParameters.basicContainer.referencePosition.altitude.altitudeConfidence << "\n";
         oss << "  |-highFrequencyContainer: " << "\n";
-        oss << "   |-present: " << cam->cam.camParameters.highFrequencyContainer.present << "\n";
-        switch (cam->cam.camParameters.highFrequencyContainer.present) {
-            case (HighFrequencyContainer_PR_NOTHING):
-                oss << "   |-choice: " << "HighFrequencyContainer_PR_NOTHING" << "\n";
-                break;
-            case (HighFrequencyContainer_PR_basicVehicleContainerHighFrequency):
-                oss << "   |-choice: " << "HighFrequencyContainer_PR_basicVehicleContainerHighFrequency" << "\n";
-                oss << "    |-basicVehicleContainerHighFrequency: " << "\n";
-                oss << "     |-heading: " << "\n";
-                oss << "      |-headingValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingValue
-                    << "\n";
-                oss << "      |-headingConfidence: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.heading.headingConfidence
-                    << "\n";
-                oss << "     |-speed: " << "\n";
-                oss << "      |-speedValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedValue
-                    << "\n";
-                oss << "      |-speedConfidence: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.speed.speedConfidence
-                    << "\n";
-                oss << "     |-driveDirection: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.driveDirection
-                    << "\n";
-                oss << "     |-vehicleLength: " << "\n";
-                oss << "      |-vehicleLengthValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue
-                    << "\n";
-                oss << "      |-vehicleLengthConfidenceIndication: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication
-                    << "\n";
-                oss << "     |-vehicleWidth: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.vehicleWidth
-                    << "\n";
-                oss << "     |-longitudinalAcceleration: " << "\n";
-                oss << "      |-longitudinalAccelerationValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue
-                    << "\n";
-                oss << "      |-longitudinalAccelerationConfidence: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence
-                    << "\n";
-                oss << "     |-curvature: " << "\n";
-                oss << "      |-curvatureValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureValue
-                    << "\n";
-                oss << "      |-curvatureConfidence: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvature.curvatureConfidence
-                    << "\n";
-                oss << "     |-curvatureCalculationMode: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.curvatureCalculationMode
-                    << "\n";
-                oss << "     |-yawRate: " << "\n";
-                oss << "      |-yawRateValue: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateValue
-                    << "\n";
-                oss << "      |-yawRateConfidence: "
-                    << cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence
-                    << "\n";
+        oss << "   |-present: " << cam->cam.camParameters.highFrequencyContainer.choice << "\n";
+        if(cam->cam.camParameters.highFrequencyContainer.choice == basicVehicleContainerHighFrequency_chosen) {
+            oss << "   |-choice: " << "HighFrequencyContainer_PR_basicVehicleContainerHighFrequency" << "\n";
+            oss << "    |-basicVehicleContainerHighFrequency: " << "\n";
+            oss << "     |-heading: " << "\n";
+            oss << "      |-headingValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingValue
+                << "\n";
+            oss << "      |-headingConfidence: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.heading.headingConfidence
+                << "\n";
+            oss << "     |-speed: " << "\n";
+            oss << "      |-speedValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedValue
+                << "\n";
+            oss << "      |-speedConfidence: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.speed.speedConfidence
+                << "\n";
+            oss << "     |-driveDirection: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.driveDirection
+                << "\n";
+            oss << "     |-vehicleLength: " << "\n";
+            oss << "      |-vehicleLengthValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthValue
+                << "\n";
+            oss << "      |-vehicleLengthConfidenceIndication: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleLength.vehicleLengthConfidenceIndication
+                << "\n";
+            oss << "     |-vehicleWidth: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.vehicleWidth
+                << "\n";
+            oss << "     |-longitudinalAcceleration: " << "\n";
+            oss << "      |-longitudinalAccelerationValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationValue
+                << "\n";
+            oss << "      |-longitudinalAccelerationConfidence: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.longitudinalAcceleration.longitudinalAccelerationConfidence
+                << "\n";
+            oss << "     |-curvature: " << "\n";
+            oss << "      |-curvatureValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureValue
+                << "\n";
+            oss << "      |-curvatureConfidence: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvature.curvatureConfidence
+                << "\n";
+            oss << "     |-curvatureCalculationMode: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.curvatureCalculationMode
+                << "\n";
+            oss << "     |-yawRate: " << "\n";
+            oss << "      |-yawRateValue: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateValue
+                << "\n";
+            oss << "      |-yawRateConfidence: "
+                << cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.yawRate.yawRateConfidence
+                << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.accelerationControl)
-                    oss << "     |-accelerationControl(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-accelerationControl(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & accelerationControl_present)
+                oss << "     |-accelerationControl(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-accelerationControl(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lanePosition)
-                    oss << "     |-lanePosition(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-lanePosition(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & BasicVehicleContainerHighFrequency_lanePosition_present)
+                oss << "     |-lanePosition(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-lanePosition(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.steeringWheelAngle)
-                    oss << "     |-steeringWheelAngle(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-steeringWheelAngle(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & steeringWheelAngle_present)
+                oss << "     |-steeringWheelAngle(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-steeringWheelAngle(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.lateralAcceleration)
-                    oss << "     |-lateralAcceleration(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-lateralAcceleration(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & BasicVehicleContainerHighFrequency_lateralAcceleration_present)
+                oss << "     |-lateralAcceleration(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-lateralAcceleration(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.verticalAcceleration)
-                    oss << "     |-verticalAcceleration(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-verticalAcceleration(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & BasicVehicleContainerHighFrequency_verticalAcceleration_present)
+                oss << "     |-verticalAcceleration(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-verticalAcceleration(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.performanceClass)
-                    oss << "     |-performanceClass(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-performanceClass(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & performanceClass_present)
+                oss << "     |-performanceClass(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-performanceClass(OPTIONAL): not present" << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.basicVehicleContainerHighFrequency.cenDsrcTollingZone)
-                    oss << "     |-cenDsrcTollingZone(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-cenDsrcTollingZone(OPTIONAL): not present" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.basicVehicleContainerHighFrequency.bit_mask & cenDsrcTollingZone_present)
+                oss << "     |-cenDsrcTollingZone(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-cenDsrcTollingZone(OPTIONAL): not present" << "\n";
 
-                break;
-            case (HighFrequencyContainer_PR_rsuContainerHighFrequency):
-                oss << "   |-choice: " << "HighFrequencyContainer_PR_rsuContainerHighFrequency" << "\n";
-                oss << "    |-rsuContainerHighFrequency: " << "\n";
+        } else if(cam->cam.camParameters.highFrequencyContainer.choice == rsuContainerHighFrequency_chosen) {
+            oss << "   |-choice: " << "HighFrequencyContainer_PR_rsuContainerHighFrequency" << "\n";
+            oss << "    |-rsuContainerHighFrequency: " << "\n";
 
-                if (cam->cam.camParameters.highFrequencyContainer.choice.rsuContainerHighFrequency.protectedCommunicationZonesRSU)
-                    oss << "     |-protectedCommunicationZonesRSU(OPTIONAL): present - parsing not yet implemented" << "\n";
-                else
-                    oss << "     |-protectedCommunicationZonesRSU(OPTIONAL): not present" << "\n";
-                break;
-            default:
-                oss << "Non standard present value" << "\n";
+            if (cam->cam.camParameters.highFrequencyContainer.u.rsuContainerHighFrequency.protectedCommunicationZonesRSU)
+                oss << "     |-protectedCommunicationZonesRSU(OPTIONAL): present - parsing not yet implemented" << "\n";
+            else
+                oss << "     |-protectedCommunicationZonesRSU(OPTIONAL): not present" << "\n";
+            break;
+        } else {
+            oss << "Non standard present value" << "\n";
         }
 
-        if (cam->cam.camParameters.lowFrequencyContainer) {
+        if (cam->cam.camParameters.bit_mask & lowFrequencyContainer_present) {
             oss << "  |-lowFrequencyContainer(OPTIONAL): present" << "\n";
-            oss << "   |-present: " << ((LowFrequencyContainer *) cam->cam.camParameters.lowFrequencyContainer)->present
-                << "\n";
-            switch (cam->cam.camParameters.lowFrequencyContainer->present) {
-                case (LowFrequencyContainer_PR_NOTHING):
-                    oss << "   |-choice: " << "LowFrequencyContainer_PR_NOTHING" << "\n";
-                    break;
-                case (LowFrequencyContainer_PR_basicVehicleContainerLowFrequency):
-                    oss << "   |-choice: " << "LowFrequencyContainer_PR_basicVehicleContainerLowFrequency" << "\n";
-                    oss << "    |-basicVehicleContainerLowFrequency: " << "\n";
-                    oss << "     |-vehicleRole: "
-                        << cam->cam.camParameters.lowFrequencyContainer->choice.basicVehicleContainerLowFrequency.vehicleRole
-                        << "\n";
-                    oss << "     |-exteriorLights: BITSTRING - not implemented for displaying in demo" << "\n";
-                    oss << "     |-pathHistory: A_SEQUENCE_OF - not implemented for displaying in demo" << "\n";
-                    break;
-                default:
-                    oss << "Non standard present value" << "\n";
+            if (cam->cam.camParameters.lowFrequencyContainer.choice == basicVehicleContainerLowFrequency_chosen){
+                oss << "   |-choice: " << "LowFrequencyContainer_PR_basicVehicleContainerLowFrequency" << "\n";
+                oss << "    |-basicVehicleContainerLowFrequency: " << "\n";
+                oss << "     |-vehicleRole: "
+                    << cam->cam.camParameters.lowFrequencyContainer.u.basicVehicleContainerLowFrequency.vehicleRole
+                    << "\n";
+                oss << "     |-exteriorLights: BITSTRING - not implemented for displaying in demo" << "\n";
+                oss << "     |-pathHistory: A_SEQUENCE_OF - not implemented for displaying in demo" << "\n";
+                break;
+            } else {
+                oss << "Non standard present value" << "\n";
             }
         } else
             oss << "  |-lowFrequencyContainer(OPTIONAL): not present" << "\n";
 
-        if (cam->cam.camParameters.specialVehicleContainer) {
+        if (cam->cam.camParameters.bit_mask & specialVehicleContainer_present) {
             oss << "  |-specialVehicleContainer(OPTIONAL): present" << "\n";
-            oss << "   |-present: " << cam->cam.camParameters.specialVehicleContainer->present << "\n";
-            switch (cam->cam.camParameters.specialVehicleContainer->present) {
-                case (SpecialVehicleContainer_PR_NOTHING):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_NOTHING" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_publicTransportContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_publicTransportContainer" << "\n";
-                    oss << "    |-publicTransportContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_specialTransportContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_specialTransportContainer" << "\n";
-                    oss << "    |-specialTransportContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_dangerousGoodsContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_dangerousGoodsContainer" << "\n";
-                    oss << "    |-dangerousGoodsContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_roadWorksContainerBasic):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_roadWorksContainerBasic" << "\n";
-                    oss << "    |-roadWorksContainerBasic: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_rescueContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_rescueContainer" << "\n";
-                    oss << "    |-rescueContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_emergencyContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_emergencyContainer" << "\n";
-                    oss << "    |-emergencyContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                case (SpecialVehicleContainer_PR_safetyCarContainer):
-                    oss << "   |-choice: " << "SpecialVehicleContainer_PR_safetyCarContainer" << "\n";
-                    oss << "    |-safetyCarContainer: content parsing not further implemented in demo" << "\n";
-                    break;
-                default:
-                    oss << "Non standard present value" << "\n";
+            oss << "   |-present: " << cam->cam.camParameters.specialVehicleContainer.choice << "\n";
+            if (cam->cam.camParameters.specialVehicleContainer.choice == publicTransportContainer_chosen){
+                oss << "   |-choice: " << "publicTransportContainer_chosen" << "\n";
+                oss << "    |-publicTransportContainer: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == specialTransportContainer_chosen){
+                oss << "   |-choice: " << "specialTransportContainer_chosen" << "\n";
+                oss << "    |-specialTransportContainer: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == dangerousGoodsContainer_chosen){
+                oss << "   |-choice: " << "dangerousGoodsContainer_chosen" << "\n";
+                oss << "    |-dangerousGoodsContainer: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == roadWorksContainerBasic_chosen){
+                oss << "   |-choice: " << "roadWorksContainerBasic_chosen" << "\n";
+                oss << "    |-roadWorksContainerBasic: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == rescueContainer_chosen){
+                oss << "   |-choice: " << "rescueContainer_chosen" << "\n";
+                oss << "    |-rescueContainer: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == emergencyContainer_chosen){
+                oss << "   |-choice: " << "emergencyContainer_chosen" << "\n";
+                oss << "    |-emergencyContainer: content parsing not further implemented in demo" << "\n";
+            } else if (cam->cam.camParameters.specialVehicleContainer.choice == safetyCarContainer_chosen){
+                oss << "   |-choice: " << "safetyCarContainer_chosen" << "\n";
+                oss << "    |-safetyCarContainer: content parsing not further implemented in demo" << "\n";
+            } else {
+                oss << "   |-choice: " << "nothing chosen" << "\n";
             }
         } else
             oss << "  |-specialVehicleContainer(OPTIONAL): not present" << "\n";

@@ -14,9 +14,18 @@ endif()
 # Select the ITS library that should be used
 set(LIB_NAME_VCITS "vcits") # - vcits ... vehicleCAPTAIN its library -> free and open source
 set(LIB_NAME_OSSITS "ossits") # - ossits ... uses the same principle as vcits, but requires the oss.com asn1 generator -> license fees
+set(LIB_ASN_FOLDER_OSSITS "asn1oss/include/asn1oss")
+set(LIB_ASN_FOLDER_VCITS "asn1c")
+
 if(NOT USE_ITS_LIBRARY)
  set(USE_ITS_LIBRARY ${LIB_NAME_VCITS})
-# set(USE_ITS_LIBRARY ${LIB_NAME_OSSITS})
+ #set(USE_ITS_LIBRARY ${LIB_NAME_OSSITS})
+endif()
+
+if(USE_ITS_LIBRARY STREQUAL LIB_NAME_VCITS)
+ set(USE_ITS_LIBRARY_ASN_FOLDER ${LIB_ASN_FOLDER_VCITS})
+else()
+ set(USE_ITS_LIBRARY_ASN_FOLDER ${LIB_ASN_FOLDER_OSSITS})
 endif()
 
 # compile options
@@ -59,20 +68,17 @@ find_package(v2x_msgs REQUIRED)
 #pkg_check_modules(${USE_ITS_LIBRARY} REQUIRED)
 add_subdirectory(${USE_ITS_LIBRARY})
 
-# load the handler library
-configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/CAMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/CAMHandler.h" COPYONLY)
-configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/CPMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/CPMHandler.h" COPYONLY)
-configure_file ("${PROJECT_SOURCE_DIR}/include/handler/${USE_ITS_LIBRARY}/DENMHandler.h" "${PROJECT_SOURCE_DIR}/include/handler/DENMHandler.h" COPYONLY)
-
 # add executable and sources
 ament_auto_add_executable(v2x_gw src/V2XGateway.cpp
         src/server/V2XServer.cpp
         src/server/V2XZMQServer.cpp
-        src/handler/V2XMHandler.cpp
-        src/handler/ExampleMHandler.cpp
+        src/handler/${USE_ITS_LIBRARY}/V2XMHandler.cpp
+        src/handler/${USE_ITS_LIBRARY}/ExampleMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/CAMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/CPMHandler.cpp
         src/handler/${USE_ITS_LIBRARY}/DENMHandler.cpp
+        src/handler/${USE_ITS_LIBRARY}/IVIMHandler.cpp
+        src/handler/${USE_ITS_LIBRARY}/IVIMUtils.cpp
         )
 
 # reference headers
@@ -80,9 +86,9 @@ target_include_directories(v2x_gw PUBLIC ${CMAKE_INSTALL_PREFIX}/include/
         include
         include/server
         include/handler
-        include/handler/${USE_ITS_LIBRARY}
+        include/utils
         ${ZEROMQ_INCLUDE_DIR}
-        ${USE_ITS_LIBRARY}/asn1c
+        ${USE_ITS_LIBRARY}/${USE_ITS_LIBRARY_ASN_FOLDER}
         .
         )
 

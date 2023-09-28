@@ -1,12 +1,7 @@
 #include "CPMHandler.h"
-#include "handler/vcits/specifics/utils.h"
+#include "handler/ossits/specifics/utils.h"
 extern "C" {
-#include "vcits/exceptions/V2XLibExceptions.h"
-
-#include "vcits/parser/Decoder.h"
-#include "vcits/parser/Encoder.h"
-
-#include "vcits/cpm/CPM.h"
+    #include "ossits/include/ossits/ossits.h"
 }
 
 
@@ -15,11 +10,28 @@ struct PerceivedObject;
 CPMHandler::CPMHandler(rclcpp::Node *gateway_node)
         : V2XMHandler(MsgType::kCPM, gateway_node) {
 
-    cpm_ = malloc(sizeof(CPM_t));  
+    cpm_ =  malloc(sizeof(CPM));  
     new_data_received_ = false;
 
     // configure
     ReadConfig();
+
+    //init ossits world
+    world_ = malloc(sizeof(OssGlobal));
+    int retcode;
+    if (retcode = ossinit((OssGlobal*) world_, ITS_Container)) {
+	    RCLCPP_ERROR(GetNode()->get_logger(), "ossinit error: %d", retcode);
+    }
+
+    ossSetEncodingFlags((OssGlobal*)world_, DEBUGPDU);
+    ossSetDecodingFlags((OssGlobal*)world_, DEBUGPDU);
+
+    if(CPM_WRITE_TRACE_FILE){
+        std::string trace_path_str="trace_cpm.out";
+        char* trace_path = new char[trace_path_str.length() + 1];
+        strcpy(trace_path, trace_path_str.c_str());
+        ossOpenTraceFile((ossGlobal*)world_, trace_path);
+    }
 
     // init CPM
     InitCPM();
@@ -35,9 +47,18 @@ CPMHandler::CPMHandler(rclcpp::Node *gateway_node)
 CPMHandler::~CPMHandler() {
     // TODO: CHECK how deep this mighty free functions works, does it free all encapsulated pointers?
     if(cpm_!= nullptr){
-        ASN_STRUCT_FREE(asn_DEF_CPM, cpm_);
+        //frees and removes last element of cpm_list
+        int ret_code;
+        if ((ret_code = ossFreePDU((ossGlobal*)world_, CPM_PDU, cpm_)) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+        }
         cpm_ = nullptr;
     }
+    if(CPM_WRITE_TRACE_FILE){
+        ossCloseTraceFile((ossGlobal*)world_);
+    }
+    ossterm((ossGlobal*)world_);
+    free(world_);
 }
 
 std::vector<diagnostic_msgs::msg::KeyValue> CPMHandler::GetDiagnostics() {
@@ -73,6 +94,9 @@ std::queue<std::pair<void *, size_t>> CPMHandler::GetMessages() {
         return cpm_queue;
     }
 
+    OssBuf final_cpm_buffer;
+    int ret_code;
+
     // static variables
     static rclcpp::Time prev_process_timestamp = current_timestamp;
 
@@ -80,26 +104,16 @@ std::queue<std::pair<void *, size_t>> CPMHandler::GetMessages() {
     if(GetFrequency(current_timestamp, prev_process_timestamp) <= 10.0) {
 
         auto& clk = *GetNode()->get_clock();
-        // CAM creation
-        size_t final_cpm_size;
-        void *final_cpm_buffer;
-
-        try {
-            Encoder::validate_constraints(&asn_DEF_CPM, (CPM_t *)cpm_);
-            final_cpm_size = Encoder::encode(&asn_DEF_CPM, nullptr, (CPM_t *)cpm_, &final_cpm_buffer);
-
-            if (final_cpm_size > 0) {
-                cpm_queue.push(std::make_pair(final_cpm_buffer, final_cpm_size));
-                auto& clk = *GetNode()->get_clock();
-                RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, CPM_DEBUG_MSG_THROTTLE_MS,
-                                     "CPM created successfully with size %ld", final_cpm_size);
-            } else {
-                RCLCPP_ERROR(GetNode()->get_logger(), "CPM creation failed - you should probably stop the program");
-            }
-        } catch (ValidateConstraintsException e) {
-            RCLCPP_ERROR(GetNode()->get_logger(), e.what());
-        } catch (EncodingException e) {
-            RCLCPP_ERROR(GetNode()->get_logger(), e.what());
+        // CPM creation
+        final_cpm_buffer.value = NULL;  
+        final_cpm_buffer.length = 0;
+        if ((ret_code = ossEncode((ossGlobal*)world_, CPM_PDU, (CPM*)cpm_, &final_cpm_buffer)) != 0) {
+            RCLCPP_ERROR(GetNode()->get_logger(), "CPM creation error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
+        }else{
+            cpm_queue.push(std::make_pair(final_cpm_buffer.value, final_cpm_buffer.length));
+            auto& clk = *GetNode()->get_clock();
+            RCLCPP_INFO_THROTTLE(GetNode()->get_logger(), clk, CPM_DEBUG_MSG_THROTTLE_MS,
+                                        "CPM created successfully with size %ld", final_cpm_buffer.length);
         }
 
         prev_process_timestamp = current_timestamp;
@@ -140,7 +154,8 @@ void CPMHandler::ReadConfig() {
     GetNode()->declare_parameter("cpm.active", false);
     GetNode()->get_parameter("cpm.active", CPM_ACTIVE);
     GetNode()->declare_parameter("cpm.handler_debug_msg_throttle_ms", 5000);
-    GetNode()->get_parameter("cpm.handler_debug_msg_throttle_ms", CPM_DEBUG_MSG_THROTTLE_MS);
+    GetNode()->declare_parameter("cpm.write_trace_file", false);
+    GetNode()->get_parameter("cpm.write_trace_file", CPM_WRITE_TRACE_FILE);
 
     if(CPM_ACTIVE) {
         is_active_ = true;
@@ -158,97 +173,102 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
     if(ros_cpm_list->cpms.size() != 0){
         //free optional Containers before pointer is lost
-        if(((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer != nullptr){
-            ASN_STRUCT_FREE(asn_DEF_StationDataContainer, ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer);
-        }
-        if(((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer != nullptr){
-            ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer);
+        if(((CPM*)cpm_)->cpm.cpmParameters.bit_mask & perceivedObjectContainer_present){
+            int ret_code;
+            PerceivedObjectContainer_* poc = ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer;
+            PerceivedObjectContainer_* poc_next;
+            while(poc != nullptr){
+                poc_next = poc->next;
+                free(poc);
+                // if ((ret_code = ossFreePDU((ossGlobal*)world_, PerceivedObject_PDU, (void*)&(poc->value))) != 0) {
+                //     RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+                // }
+                poc = poc_next;
+            }
+            
         }
         // reset data structure
-        memset(cpm_, 0, sizeof(CPM_t));
+        memset(cpm_, 0, sizeof(CPM));
 
         new_data_received_ = true;
-        for(v2x_msgs::msg::CPM ros_cpm : ros_cpm_list->cpms){
+        for(auto ros_cpm : ros_cpm_list->cpms){
             // header
-            ((CPM_t *)cpm_)->header.protocolVersion = ros_cpm.header.protocol_version;
-            ((CPM_t *)cpm_)->header.messageID = ros_cpm.header.message_id;
-            ((CPM_t *)cpm_)->header.stationID = ros_cpm.header.station_id.station_id;   
+            ((CPM*)cpm_)->header.protocolVersion = ros_cpm.header.protocol_version;
+            ((CPM*)cpm_)->header.messageID = ros_cpm.header.message_id;
+            ((CPM*)cpm_)->header.stationID = ros_cpm.header.station_id.station_id;   
 
             // Generation delta time
-            ((CPM_t *)cpm_)->cpm.generationDeltaTime = ros_cpm.cpm.generation_delta_time.generation_delta_time;
+            ((CPM*)cpm_)->cpm.generationDeltaTime = ros_cpm.cpm.generation_delta_time.generation_delta_time;
             
             // Management container
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.stationType = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.stationType = 
                 ros_cpm.cpm.cpm_parameters.management_container.station_type.station_type;
 
             //TODO: Implement perceived_object_container_segment_info (not needed yet)
             
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.latitude.latitude;
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.longitude.longitude;
 
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorConfidence = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorConfidence = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_major_confidence.semi_axis_length;
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMinorConfidence = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMinorConfidence = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_minor_confidence.semi_axis_length;
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorOrientation = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.positionConfidenceEllipse.semiMajorOrientation = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.position_confidence_ellipse.semi_major_orientation.heading_value;
 
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = 
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = 
                 ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_value.altitude_value;
-            ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeConfidence = 
-                ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_confidence.altitude_confidence;
+            ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeConfidence =
+                AltitudeConfidence(ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_confidence.altitude_confidence);
 
             // Station data container
             if (ros_cpm.cpm.cpm_parameters.station_data_container_present){
+                ((CPM*)cpm_)->cpm.cpmParameters.bit_mask |= stationDataContainer_present;
+
                 //originatingVehicleContainer
                 if(ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select == v2x_msgs::msg::StationDataContainer::STATION_DATA_CONTAINER_ORIGINATING_VEHICLE_CONTAINER){
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer = (StationDataContainer *) malloc(sizeof(StationDataContainer));
-                    memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer, 0, sizeof(StationDataContainer));
-
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->present = StationDataContainer_PR_originatingVehicleContainer;
-                    
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.choice = originatingVehicleContainer_chosen;
                     //Heading
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingValue = 
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.heading.headingValue = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_value.heading_value;
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingConfidence = 
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.heading.headingConfidence = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_confidence.heading_confidence;
 
                     //Speed
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedValue = 
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.speed.speedValue = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_value.speed_value;
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedConfidence = 
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.speed.speedConfidence = 
                         ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_confidence.speed_confidence;
 
-                    //Drive direction
-                    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.driveDirection = 
-                        ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.drive_direction.drive_direction;
+                    ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.driveDirection = 
+                        DriveDirection(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.drive_direction.drive_direction);
                     
                     // TODO: inpmelent optional Vehicle orientation Angle, Acceleration, Yaw Rate (Not needed Yet)
 
                     //Optional: Pitch Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle_present){
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
-                        memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle, 0, sizeof(CartesianAngle));
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->value = 
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask |= pitchAngle_present;
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.value.cartesian_angle_value;
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->confidence =
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.confidence =
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.confidence.angle_confidence;
                     }
                     
                     //Optional: Roll Angle
                     if(ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle_present){
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
-                        memset((void *) ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle, 0, sizeof(CartesianAngle));
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->value = 
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask |= rollAngle_present;
+                        
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.rollAngle.value = 
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.value.cartesian_angle_value;
-                        ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->confidence =
+                        ((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.rollAngle.confidence =
                             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.confidence.angle_confidence;
                     }
 
                     //TODO: Implement Vehicle Length, width, height and trailer data container (not needed yet)
                 } else {
+                    //((CPM*)cpm_)->cpm.cpmParameters.stationDataContainer.choice = originatingRSUContainer_chosen;
                     //TODO: Implement originating rsu container (Not needed yet)
                 } 
             }  
@@ -257,12 +277,14 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
             //Optional: PerceivedObjectContainer 
             if(ros_cpm.cpm.cpm_parameters.perceived_object_container_present){
-                PerceivedObjectContainer* poc = (PerceivedObjectContainer *) malloc(sizeof(PerceivedObjectContainer));
-                memset((void *) poc, 0, sizeof(PerceivedObjectContainer));
-
+                ((CPM*)cpm_)->cpm.cpmParameters.bit_mask |= perceivedObjectContainer_present;
+                
+                bool first = true;
+                PerceivedObjectContainer_* poc =((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer;
                 for(auto ros_object : ros_cpm.cpm.cpm_parameters.perceived_object_container.container){
-                    PerceivedObject *myObj = (PerceivedObject*) malloc(sizeof(PerceivedObject));
-                    memset((void *) myObj, 0, sizeof(PerceivedObject));
+                    PerceivedObjectContainer_ *next_poc = (PerceivedObjectContainer_ *) malloc(sizeof(PerceivedObjectContainer_));
+                    memset((void *) next_poc, 0, sizeof(PerceivedObjectContainer_));
+                    PerceivedObject *myObj = &next_poc->value;
                     // ID
                     myObj->objectID = ros_object.object_id.identifier;
 
@@ -285,10 +307,9 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     myObj->yDistance.confidence = ros_object.y_distance.confidence.distance_confidence;
                     //OPTIONAL: zDistance
                     if(ros_object.z_distance_present){
-                        myObj->zDistance = (ObjectDistanceWithConfidence*) malloc(sizeof(ObjectDistanceWithConfidence));
-                        memset((void *) myObj->zDistance, 0, sizeof(ObjectDistanceWithConfidence));
-                        myObj->zDistance->value = ros_object.z_distance.value.distance_value;
-                        myObj->zDistance->confidence = ros_object.z_distance.confidence.distance_confidence;
+                        myObj->bit_mask |= zDistance_present;
+                        myObj->zDistance.value = ros_object.z_distance.value.distance_value;
+                        myObj->zDistance.confidence = ros_object.z_distance.confidence.distance_confidence;
                     }    
 
                     // Speed
@@ -298,67 +319,60 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     myObj->ySpeed.confidence = ros_object.y_speed.confidence.speed_confidence;
                     //OPTIONAL: zSpeed
                     if(ros_object.z_speed_present){
-                        myObj->zSpeed = (SpeedExtended*)malloc(sizeof(SpeedExtended));
-                        memset((void *) myObj->zSpeed, 0, sizeof(SpeedExtended));
-                        myObj->zSpeed->value = ros_object.z_speed.value.speed_value_extended;
-                        myObj->zSpeed->confidence = ros_object.z_speed.confidence.speed_confidence;
+                        myObj->bit_mask |= zSpeed_present;
+                        myObj->zSpeed.value = ros_object.z_speed.value.speed_value_extended;
+                        myObj->zSpeed.confidence = ros_object.z_speed.confidence.speed_confidence;
                     }
 
                     //OPTIONAL: Acceleration
                     if(ros_object.x_acceleration_present){
-                        myObj->xAcceleration = (LongitudinalAcceleration *)malloc(sizeof(LongitudinalAcceleration));
-                        memset((void *) myObj->xAcceleration, 0, sizeof(LongitudinalAcceleration));
-                        myObj->xAcceleration->longitudinalAccelerationValue = 
+                        myObj->bit_mask |= xAcceleration_present;
+                        myObj->xAcceleration.longitudinalAccelerationValue = 
                             ros_object.x_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value;
-                        myObj->xAcceleration->longitudinalAccelerationConfidence = 
+                        myObj->xAcceleration.longitudinalAccelerationConfidence = 
                             ros_object.x_acceleration.longitudinal_acceleration_confidence.acceleration_confidence;
                     }
                     if(ros_object.y_acceleration_present){
-                        myObj->yAcceleration = (LateralAcceleration *)malloc(sizeof(LateralAcceleration));
-                        memset((void *) myObj->yAcceleration, 0, sizeof(LateralAcceleration));
-                        myObj->yAcceleration->lateralAccelerationValue = 
+                        myObj->bit_mask |= yAcceleration_present;
+                        myObj->yAcceleration.lateralAccelerationValue = 
                             ros_object.y_acceleration.lateral_acceleration_value.lateral_acceleration_value;
-                        myObj->yAcceleration->lateralAccelerationConfidence = 
+                        myObj->yAcceleration.lateralAccelerationConfidence = 
                             ros_object.y_acceleration.lateral_acceleration_confidence.acceleration_confidence;
                     }
                     if(ros_object.z_acceleration_present){
-                        myObj->zAcceleration = (VerticalAcceleration *)malloc(sizeof(VerticalAcceleration));
-                        memset((void *) myObj->zAcceleration, 0, sizeof(VerticalAcceleration));
-                        myObj->zAcceleration->verticalAccelerationValue = 
+                        myObj->bit_mask |= zAcceleration_present;
+                        myObj->zAcceleration.verticalAccelerationValue = 
                             ros_object.z_acceleration.vertical_acceleration_value.vertical_acceleration_value;
-                        myObj->zAcceleration->verticalAccelerationConfidence = 
+                        myObj->zAcceleration.verticalAccelerationConfidence = 
                             ros_object.z_acceleration.vertical_acceleration_confidence.acceleration_confidence;
                     }
 
                     //OPTIONAL: YawAngle
                     if(ros_object.yaw_angle_present){
-                        myObj->yawAngle = (CartesianAngle *) malloc(sizeof(CartesianAngle));
-                        memset((void *) myObj->yawAngle, 0, sizeof(CartesianAngle));
-                        myObj->yawAngle->value = ros_object.yaw_angle.value.cartesian_angle_value;
-                        myObj->yawAngle->confidence = ros_object.yaw_angle.confidence.angle_confidence;
+                        myObj->bit_mask |= yawAngle_present;
+                        myObj->yawAngle.value = ros_object.yaw_angle.value.cartesian_angle_value;
+                        myObj->yawAngle.confidence = ros_object.yaw_angle.confidence.angle_confidence;
                     }
                     
                     //OPTIONAL: Dimension
                     if(ros_object.planar_object_dimension1_present){
-                        myObj->planarObjectDimension1 = (ObjectDimension*)malloc(sizeof(ObjectDimension));
-                        memset((void *) myObj->planarObjectDimension1, 0, sizeof(ObjectDimension));
-                        myObj->planarObjectDimension1->value = ros_object.planar_object_dimension1.value.object_dimension_value;
-                        myObj->planarObjectDimension1->confidence = ros_object.planar_object_dimension1.confidence.object_dimension_confidence;
+                        myObj->bit_mask |= planarObjectDimension1_present;
+                        myObj->planarObjectDimension1.value = ros_object.planar_object_dimension1.value.object_dimension_value;
+                        myObj->planarObjectDimension1.confidence = ros_object.planar_object_dimension1.confidence.object_dimension_confidence;
                     }
                     if(ros_object.planar_object_dimension2_present){
-                        myObj->planarObjectDimension2 = (ObjectDimension*)malloc(sizeof(ObjectDimension));
-                        memset((void *) myObj->planarObjectDimension2, 0, sizeof(ObjectDimension));
-                        myObj->planarObjectDimension2->value = ros_object.planar_object_dimension2.value.object_dimension_value;
-                        myObj->planarObjectDimension2->confidence = ros_object.planar_object_dimension2.confidence.object_dimension_confidence;
+                        myObj->bit_mask |= planarObjectDimension2_present;
+                        myObj->planarObjectDimension2.value = ros_object.planar_object_dimension2.value.object_dimension_value;
+                        myObj->planarObjectDimension2.confidence = ros_object.planar_object_dimension2.confidence.object_dimension_confidence;
                     }
                     if(ros_object.vertical_object_dimension_present){
-                        myObj->verticalObjectDimension = (ObjectDimension*)malloc(sizeof(ObjectDimension));
-                        memset((void *) myObj->verticalObjectDimension, 0, sizeof(ObjectDimension));
-                        myObj->verticalObjectDimension->value = ros_object.vertical_object_dimension.value.object_dimension_value;
-                        myObj->verticalObjectDimension->confidence = ros_object.vertical_object_dimension.confidence.object_dimension_confidence;
+                        myObj->bit_mask |= verticalObjectDimension_present;
+                        myObj->verticalObjectDimension.value = ros_object.vertical_object_dimension.value.object_dimension_value;
+                        myObj->verticalObjectDimension.confidence = ros_object.vertical_object_dimension.confidence.object_dimension_confidence;
                     }
 
                     //objectRefPoint
+                    myObj->bit_mask |= objectRefPoint_present;
                     myObj->objectRefPoint = ros_object.object_ref_point.object_ref_point;
 
                     //OPTIONAL: DynamicsStatus
@@ -366,18 +380,11 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
                     //OPTIONAL: classification
                     if(ros_object.classification_present){
-                        ObjectClassDescription *myObjCLassDescription = (ObjectClassDescription*)malloc(sizeof(ObjectClassDescription));
-                        ObjectClass *myObjClass = (ObjectClass*) malloc(sizeof(ObjectClass));
+                        myObj->bit_mask |= classification_present;
+                        ObjectClassDescription_ *myObjCLassDescription = (ObjectClassDescription_*)malloc(sizeof(ObjectClassDescription_));
                         memset((void *) myObjCLassDescription, 0, sizeof(ObjectClassDescription));
-                        memset((void *) myObjClass, 0, sizeof(ObjectClass));
-                        utils::convert2ASN1ObjectClass(myObjClass, ros_object);                   
-        
-                        const int result = ASN_SET_ADD(&myObjCLassDescription->list, myObjClass);
-                        if(result != 0){
-                            ASN_STRUCT_FREE(asn_DEF_ObjectClassDescription, myObjCLassDescription);
-                            RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() for ObjectClassDescription failed");
-                            exit(EXIT_FAILURE);
-                        }
+                        
+                        utils::convert2ASN1ObjectClass(&myObjCLassDescription->value, ros_object);      
                         myObj->classification = myObjCLassDescription;
                     }
 
@@ -385,19 +392,25 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
                     // TODO:: Implement Match position (not needed yet)
 
                     // Add object to container list
-                    const int result = ASN_SET_ADD(&poc->list, myObj);
-                    if(result != 0){
-                        ASN_STRUCT_FREE(asn_DEF_PerceivedObjectContainer, poc);
-                        RCLCPP_ERROR(GetNode()->get_logger(), "asn_set_add() failed");
-                        exit(EXIT_FAILURE);
-                    }
+
+                    if(first){
+                        ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer = next_poc;
+                        poc = next_poc;
+                        first = false;
+                    }else{
+                        while(poc->next != nullptr){
+                            poc = poc->next;
+                            RCLCPP_WARN(GetNode()->get_logger(), "on wrong place of list, should not happen");
+                        }
+                        poc->next = next_poc;
+                        poc = poc->next;
+                    }                                      
+                    
                 }
-                ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer = poc;
+                //RCLCPP_WARN(GetNode()->get_logger(), "Bitmask is : %x, Poc is: %p", ((CPM*)cpm_)->cpm.cpmParameters.bit_mask, ((CPM*)cpm_)->cpm.cpmParameters.perceivedObjectContainer);
             }
-
             //Number of perceived objects
-            ((CPM_t *)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = ros_cpm.cpm.cpm_parameters.number_of_perceived_objects.number_of_perceived_objects;
-
+            ((CPM*)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = ros_cpm.cpm.cpm_parameters.number_of_perceived_objects.number_of_perceived_objects;
         }
     }
 }
@@ -405,40 +418,42 @@ void CPMHandler::rosCPMCallback(const v2x_msgs::msg::CPMList::SharedPtr ros_cpm_
 
 void CPMHandler::InitCPM(){
     // reset data structure
-    memset(cpm_, 0, sizeof(CPM_t));
-
-    ((CPM_t *)cpm_)->header.protocolVersion = 2;
-    ((CPM_t *)cpm_)->header.messageID = 14;
-    ((CPM_t *)cpm_)->header.stationID = 0;
+    memset(cpm_, 0, sizeof(CPM));
+    
+    ((CPM*)cpm_)->header.protocolVersion = 2;
+    ((CPM*)cpm_)->header.messageID = 14;
+    ((CPM*)cpm_)->header.stationID = 0;
 
     // Management container
-    ((CPM_t *)cpm_)->cpm.generationDeltaTime = GetGenerationDeltaTime();
-    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.stationType = StationType::StationType_unknown;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = AltitudeValue::AltitudeValue_unavailable;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = Longitude::Longitude_unavailable;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = Latitude::Latitude_unavailable;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.managementContainer.perceivedObjectContainerSegmentInfo = nullptr;
+    ((CPM*)cpm_)->cpm.generationDeltaTime = GetGenerationDeltaTime();
+    ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.stationType = StationType_unknown;
+    ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeValue = AltitudeValue_unavailable;
+    ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.longitude = Longitude_unavailable;
+    ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.referencePosition.latitude = Latitude_unavailable;
+    ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.bit_mask = 0;
+    
+    // TODO: uncomment when segment info present
+    // ((CPM*)cpm_)->cpm.cpmParameters.managementContainer.bitmask |= perceivedObjectContainerSegmentInfo_present;
 
-    // Not set 
-    ((CPM_t *)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = 0;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.perceivedObjectContainer = nullptr;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.sensorInformationContainer = nullptr;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.stationDataContainer = nullptr;
-    ((CPM_t *)cpm_)->cpm.cpmParameters.freeSpaceAddendumContainer = nullptr;
+    ((CPM*)cpm_)->cpm.cpmParameters.numberOfPerceivedObjects = 0;
+
+    ((CPM*)cpm_)->cpm.cpmParameters.bit_mask = 0;
 }
 
 v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     // variables
     v2x_msgs::msg::CPM ros_cpm;
-    CPM_t *asn_cpm = nullptr;
+    CPM* asn_cpm = nullptr;
+    int ret_code;
+
+    int pdu_num=CPM_PDU;
+    OssBuf buffer;
+    buffer.length = msg.second;
+    buffer.value = (unsigned char*) msg.first;
 
     // decode
-    try {
-        asn_cpm = (CPM_t *) Decoder::decode(&asn_DEF_CPM, msg.first, msg.second);
-    } catch (DecodingException e) {
-        RCLCPP_ERROR(GetNode()->get_logger(), e.what());
-        RCLCPP_INFO(GetNode()->get_logger(),
-                    "If decoding fails, we throw away everything, as we would have to check how far we were able to decode");
+    if ((ret_code = ossDecode((ossGlobal*)world_, &pdu_num, &buffer, (void**) &asn_cpm)) != 0) {
+        RCLCPP_ERROR(GetNode()->get_logger(), "Decode error: %d with message %s", ret_code, ossGetErrMsg((OssGlobal*) world_));
     }
 
     auto& clk = *GetNode()->get_clock();
@@ -470,48 +485,48 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     ros_cpm.cpm.cpm_parameters.management_container.reference_position.altitude.altitude_confidence.altitude_confidence = asn_cpm->cpm.cpmParameters.managementContainer.referencePosition.altitude.altitudeConfidence;
     
     //Station Data Container
-    if (asn_cpm->cpm.cpmParameters.stationDataContainer != nullptr){
+    if (asn_cpm->cpm.cpmParameters.bit_mask & stationDataContainer_present){
         ros_cpm.cpm.cpm_parameters.station_data_container_present = true;
         // originatingVehicleContainer
-        ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select = asn_cpm->cpm.cpmParameters.stationDataContainer->present;
+        ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select = asn_cpm->cpm.cpmParameters.stationDataContainer.choice;
         
         if (ros_cpm.cpm.cpm_parameters.station_data_container.station_data_container_container_select ==
             ros_cpm.cpm.cpm_parameters.station_data_container.STATION_DATA_CONTAINER_ORIGINATING_VEHICLE_CONTAINER) {
             
             //Heading
             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_value.heading_value =
-                asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingValue;
+                asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.heading.headingValue;
             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.heading.heading_confidence.heading_confidence =
-                asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.heading.headingConfidence;
+                asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.heading.headingConfidence;
 
             //Speed
             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_value.speed_value =
-                asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedValue;
+                asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.speed.speedValue;
             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.speed.speed_confidence.speed_confidence =
-                asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.speed.speedConfidence;      
+                asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.speed.speedConfidence;      
                     
             //Drive direction
             ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.drive_direction.drive_direction =
-                asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.driveDirection;
+                asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.driveDirection;
             
             // TODO: inpmelent optional Vehicle orientation Angle, Acceleration, Yaw Rate (Not needed Yet)
             
             //Optional: Pitch Angle
-            if(asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle != nullptr){
+            if(asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask & pitchAngle_present){
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle_present = true;
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.value.cartesian_angle_value =
-                    asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->value;
+                    asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.value;
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.pitch_angle.confidence.angle_confidence =
-                    asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.pitchAngle->confidence;           
+                    asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.pitchAngle.confidence;           
             }
             
             //Optional: Roll Angle
-            if(asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle != nullptr){
+            if(asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.bit_mask & rollAngle_present){
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle_present = true;
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.value.cartesian_angle_value =
-                    asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->value;
+                    asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.rollAngle.value;
                 ros_cpm.cpm.cpm_parameters.station_data_container.originating_vehicle_container.roll_angle.confidence.angle_confidence =
-                    asn_cpm->cpm.cpmParameters.stationDataContainer->choice.originatingVehicleContainer.rollAngle->confidence;           
+                    asn_cpm->cpm.cpmParameters.stationDataContainer.u.originatingVehicleContainer.rollAngle.confidence;           
             }
 
             //TODO: Implement Vehicle Length, width, height and trailer data container (not needed yet)
@@ -525,15 +540,16 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     //TODO: Implement Optional: sensor_information_container (not needed yet)
 
     // Perceived Object Container
-    if(asn_cpm->cpm.cpmParameters.numberOfPerceivedObjects > 0 && asn_cpm->cpm.cpmParameters.perceivedObjectContainer != nullptr){
+    if( asn_cpm->cpm.cpmParameters.numberOfPerceivedObjects > 0 && (asn_cpm->cpm.cpmParameters.bit_mask & perceivedObjectContainer_present) != 0){
         ros_cpm.cpm.cpm_parameters.perceived_object_container_present = true;
         // TODO: I don't know if we can iterate through sequence like this
         
-        for(int i = 0; i < asn_cpm->cpm.cpmParameters.perceivedObjectContainer->list.count; i++){
+        PerceivedObjectContainer_* current_object_container = asn_cpm->cpm.cpmParameters.perceivedObjectContainer;
+        for(int i = 0; i < asn_cpm->cpm.cpmParameters.numberOfPerceivedObjects; i++){
             PerceivedObject *object;
             v2x_msgs::msg::PerceivedObject ros_object;
 
-            object = asn_cpm->cpm.cpmParameters.perceivedObjectContainer->list.array[i];
+            object = &(current_object_container->value);
             //Object Identifier
             ros_object.object_id.identifier = object->objectID;
 
@@ -554,10 +570,10 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
             ros_object.x_distance.confidence.distance_confidence = object->xDistance.confidence;
             ros_object.y_distance.value.distance_value = object->yDistance.value;
             ros_object.y_distance.confidence.distance_confidence = object->yDistance.confidence;
-            if(object->zDistance != nullptr){
+            if(object->bit_mask & zDistance_present){
                 ros_object.z_distance_present = true;
-                ros_object.z_distance.value.distance_value = object->zDistance->value;
-                ros_object.z_distance.confidence.distance_confidence = object->zDistance->confidence;
+                ros_object.z_distance.value.distance_value = object->zDistance.value;
+                ros_object.z_distance.confidence.distance_confidence = object->zDistance.confidence;
             }
 
             //Speed
@@ -565,72 +581,76 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
             ros_object.x_speed.confidence.speed_confidence = object->xSpeed.confidence;
             ros_object.y_speed.value.speed_value_extended = object->ySpeed.value;
             ros_object.y_speed.confidence.speed_confidence = object->ySpeed.confidence;
-            if(object->zSpeed != nullptr){
+            if(object->bit_mask & zSpeed_present){
                 ros_object.z_speed_present = true;
-                ros_object.z_speed.value.speed_value_extended = object->zSpeed->value;
-                ros_object.z_speed.confidence.speed_confidence = object->zSpeed->confidence;
+                ros_object.z_speed.value.speed_value_extended = object->zSpeed.value;
+                ros_object.z_speed.confidence.speed_confidence = object->zSpeed.confidence;
             }
 
             //OPTIONAL: Acceleration
-            if(object->xAcceleration != nullptr){
+            if(object->bit_mask & xAcceleration_present){
                 ros_object.x_acceleration_present = true;
-                ros_object.x_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value = object->xAcceleration->longitudinalAccelerationValue;
-                ros_object.x_acceleration.longitudinal_acceleration_confidence.acceleration_confidence = object->xAcceleration->longitudinalAccelerationConfidence;
+                ros_object.x_acceleration.longitudinal_acceleration_value.longitudinal_acceleration_value = object->xAcceleration.longitudinalAccelerationValue;
+                ros_object.x_acceleration.longitudinal_acceleration_confidence.acceleration_confidence = object->xAcceleration.longitudinalAccelerationConfidence;
             }
-            if(object->yAcceleration != nullptr){
+            if(object->bit_mask & yAcceleration_present){
                 ros_object.y_acceleration_present = true;
-                ros_object.y_acceleration.lateral_acceleration_value.lateral_acceleration_value = object->yAcceleration->lateralAccelerationValue;
-                ros_object.y_acceleration.lateral_acceleration_confidence.acceleration_confidence = object->yAcceleration->lateralAccelerationConfidence;
+                ros_object.y_acceleration.lateral_acceleration_value.lateral_acceleration_value = object->yAcceleration.lateralAccelerationValue;
+                ros_object.y_acceleration.lateral_acceleration_confidence.acceleration_confidence = object->yAcceleration.lateralAccelerationConfidence;
             }
-            if(object->zAcceleration != nullptr){
+            if(object->bit_mask & zAcceleration_present){
                 ros_object.z_acceleration_present = true;
-                ros_object.z_acceleration.vertical_acceleration_value.vertical_acceleration_value = object->zAcceleration->verticalAccelerationValue;
-                ros_object.z_acceleration.vertical_acceleration_confidence.acceleration_confidence = object->zAcceleration->verticalAccelerationConfidence;
+                ros_object.z_acceleration.vertical_acceleration_value.vertical_acceleration_value = object->zAcceleration.verticalAccelerationValue;
+                ros_object.z_acceleration.vertical_acceleration_confidence.acceleration_confidence = object->zAcceleration.verticalAccelerationConfidence;
             }
 
             //OPTIONAL: yaw angle
-            if(object->yawAngle != nullptr){
+            if(object->bit_mask & yawAngle_present){
                 ros_object.yaw_angle_present = true;
-                ros_object.yaw_angle.value.cartesian_angle_value = object->yawAngle->value;
-                ros_object.yaw_angle.confidence.angle_confidence = object->yawAngle->confidence;
+                ros_object.yaw_angle.value.cartesian_angle_value = object->yawAngle.value;
+                ros_object.yaw_angle.confidence.angle_confidence = object->yawAngle.confidence;
             }
 
             //OPTIONAL: Dimension
-            if(object->planarObjectDimension1 != nullptr){
+            if(object->bit_mask & planarObjectDimension1_present){
                 ros_object.planar_object_dimension1_present = true;
-                ros_object.planar_object_dimension1.value.object_dimension_value = object->planarObjectDimension1->value;
-                ros_object.planar_object_dimension1.confidence.object_dimension_confidence = object->planarObjectDimension1->confidence;
+                ros_object.planar_object_dimension1.value.object_dimension_value = object->planarObjectDimension1.value;
+                ros_object.planar_object_dimension1.confidence.object_dimension_confidence = object->planarObjectDimension1.confidence;
             }
-            if(object->planarObjectDimension2 != nullptr){
+            if(object->bit_mask & planarObjectDimension2_present){
                 ros_object.planar_object_dimension2_present = true;
-                ros_object.planar_object_dimension2.value.object_dimension_value = object->planarObjectDimension2->value;
-                ros_object.planar_object_dimension2.confidence.object_dimension_confidence = object->planarObjectDimension2->confidence;
+                ros_object.planar_object_dimension2.value.object_dimension_value = object->planarObjectDimension2.value;
+                ros_object.planar_object_dimension2.confidence.object_dimension_confidence = object->planarObjectDimension2.confidence;
             }
-            if(object->verticalObjectDimension != nullptr){
+            if(object->bit_mask & verticalObjectDimension_present){
                 ros_object.vertical_object_dimension_present = true;
-                ros_object.vertical_object_dimension.value.object_dimension_value = object->verticalObjectDimension->value;
-                ros_object.vertical_object_dimension.confidence.object_dimension_confidence = object->verticalObjectDimension->confidence;
+                ros_object.vertical_object_dimension.value.object_dimension_value = object->verticalObjectDimension.value;
+                ros_object.vertical_object_dimension.confidence.object_dimension_confidence = object->verticalObjectDimension.confidence;
             }
             
             // reference point
-            ros_object.object_ref_point.object_ref_point = object->objectRefPoint;
-
+            if(object->bit_mask & objectRefPoint_present){
+                ros_object.object_ref_point.object_ref_point = object->objectRefPoint;
+            }
             //OPTIONAL: DynamicsStatus
             // TODO:: Implement Dynamic Status (not needed yet)
 
             //OPTIONAL: classification
-            if(object->classification != nullptr) {
+            if(object->bit_mask & classification_present){
                 ros_object.classification_present = true;
                 // iterate over sequence items
-                for(int j = 0; j< object->classification->list.count; j++){
-                    ObjectClass* obj_class = object->classification->list.array[j];
-                    ros_object.classification.description.push_back(utils::getROSMsgsObjectClass(obj_class));
+                ObjectClassDescription_* ocd=object->classification;
+                ros_object.classification.description.push_back(utils::getROSMsgsObjectClass(&ocd->value.ObjectClass_class));
+                while(ocd->next != nullptr){
+                    ocd = ocd->next;
+                    ros_object.classification.description.push_back(utils::getROSMsgsObjectClass(&ocd->value.ObjectClass_class));
                 }
             }
 
             // TODO:: Implement Match position (not needed yet)
 
             ros_cpm.cpm.cpm_parameters.perceived_object_container.container.push_back(ros_object);
+            current_object_container = current_object_container->next;
         }
         
         //Number of perceived objects
@@ -639,7 +659,9 @@ v2x_msgs::msg::CPM CPMHandler::GetROSCPM(std::pair<void *, size_t> msg){
     // TODO: Implement
 
     // free memory
-    ASN_STRUCT_FREE(asn_DEF_CPM, asn_cpm);
+    if ((ret_code = ossFreePDU((ossGlobal*)world_, CPM_PDU, asn_cpm)) != 0) {
+        RCLCPP_ERROR(GetNode()->get_logger(), "Free decoded error: %d", ret_code);
+    }
     asn_cpm = nullptr;
 
     // return converted cam
