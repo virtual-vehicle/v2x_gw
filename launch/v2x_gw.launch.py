@@ -45,6 +45,7 @@ def generate_launch_description():
                 {"server.address_fusion": LaunchConfiguration('server.address_fusion')}
                 ],
             # prefix=['valgrind --leak-check=full --track-origins=yes'], #test for memory leaks
+            # prefix=['xterm -e gdb -ex run --args'], #additional debug output
             namespace=namespace
         )
 

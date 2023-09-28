@@ -459,6 +459,8 @@ v2x_msgs::msg::IviContainer IVIMUtils::GetROSIviContainer(IviContainer* asn_ivi_
       auto ros_tc_part = IVIMUtils::GetROSTcPart(&(asn_tc->value));
 
       ros_tc_parts.push_back(ros_tc_part);
+      
+      asn_tc = asn_tc->next;
     }
   } else {
     RCLCPP_INFO(node_->get_logger(),
